@@ -227,10 +227,29 @@
       }
     }
 
+    // 세로 방향으로도 같은 계산을 한다. 바코드 줄무늬는 사진이 바로 서 있으면 가로로
+    // 촘촘하고, 옆으로 누워 있으면 세로로 촘촘하다. 이걸로 회전 여부를 미리 짐작한다.
+    let colMax = 0, colMaxX = 0;
+    for (let x = 0; x < W; x += 2) {
+      let mn = 255, mx = 0;
+      for (let y = 0; y < H; y++) { const v = gray[y * W + x]; if (v < mn) mn = v; if (v > mx) mx = v; }
+      if (mx - mn < 40) continue;
+      const t = (mn + mx) / 2;
+      let n = 0, first = -1, last = -1, prev = gray[x] > t;
+      for (let y = 0; y < H; y++) {
+        const cur = gray[y * W + x] > t;
+        if (!cur) { if (first < 0) first = y; last = y; }
+        if (y && cur !== prev) n++;
+        prev = cur;
+      }
+      const span = first < 0 ? 0 : (last - first + 1);
+      if (span > H * 0.3) { const d = n / span; if (d > colMax) { colMax = d; colMaxX = x; } }
+    }
+
     // 가장 촘촘한 행을 기준으로 자른다. 글자 줄의 촘촘함은 바코드의 절반 남짓이다.
     let dmax = 0;
     for (let y = 0; y < H; y++) if (dens[y] > dmax) dmax = dens[y];
-    if (dmax < 0.028) return { bands: [] };
+    if (dmax < 0.028) return { bands: [], rowMax: dmax, colMax, colMaxX };
     const cut = Math.max(0.028, dmax * 0.6);
 
     const bands = [];
@@ -243,13 +262,13 @@
         start = -1;
       }
     }
-    if (!bands.length) return { bands: [] };
+    if (!bands.length) return { bands: [], rowMax: dmax, colMax, colMaxX };
 
     // 덮는 색: 사진 전체의 중간 밝기
     const mid = Array.from(gray).sort((a, b) => a - b)[gray.length >> 1];
     ctx.fillStyle = `rgb(${mid},${mid},${mid})`;
     for (const [a, b] of bands) ctx.fillRect(0, Math.max(0, a - 3), W, (b - a) + 6);
-    return { bands };
+    return { bands, rowMax: dmax, colMax, colMaxX };
   }
 
   /**
@@ -290,20 +309,37 @@
     return { x: rect.x + left, y: rect.y + top, w: right - left + 1, h: bottom - top + 1 };
   }
 
-  function buildOcrCanvas(zoom = 1) {
+  function buildOcrCanvas(zoom = 1, rot = 0) {
     const base = cropRect || { x: 0, y: 0, w: sourceCanvas.width, h: sourceCanvas.height };
     const r = trimUniformBorder(base);
-    let scale = Math.min(3, Math.max(1, OCR_TARGET_W / r.w)) * zoom;
+    const turned = rot === 90 || rot === 270;
+    const longSide = turned ? r.h : r.w;
+    let scale = Math.min(3, Math.max(1, OCR_TARGET_W / longSide)) * zoom;
     // 너무 커지면 느려지기만 한다. 폭·높이 양쪽을 막는다.
-    scale = Math.min(scale, OCR_MAX_W / r.w, OCR_MAX_SIDE / r.h);
+    scale = Math.min(scale, OCR_MAX_W / longSide, OCR_MAX_SIDE / (turned ? r.w : r.h));
+    const w = Math.round(r.w * scale), h = Math.round(r.h * scale);
     const c = document.createElement('canvas');
-    c.width = Math.round(r.w * scale);
-    c.height = Math.round(r.h * scale);
+    c.width = turned ? h : w;
+    c.height = turned ? w : h;
     const x = c.getContext('2d', { willReadFrequently: true });
     x.imageSmoothingQuality = 'high';
-    x.drawImage(sourceCanvas, r.x, r.y, r.w, r.h, 0, 0, c.width, c.height);
+    // 사진이 옆으로 누워 있으면 Tesseract는 한 글자도 못 읽는다. 방향을 돌려 가며 시도한다.
+    if (rot === 90) { x.translate(c.width, 0); x.rotate(Math.PI / 2); }
+    else if (rot === 270) { x.translate(0, c.height); x.rotate(-Math.PI / 2); }
+    else if (rot === 180) { x.translate(c.width, c.height); x.rotate(Math.PI); }
+    x.drawImage(sourceCanvas, r.x, r.y, r.w, r.h, 0, 0, w, h);
+    x.setTransform(1, 0, 0, 1, 0, 0);
     const info = suppressBarcode(c);
-    return { canvas: c, bands: info.bands, scale };
+    return { canvas: c, bands: info.bands, rowMax: info.rowMax, colMax: info.colMax, colMaxX: info.colMaxX, scale, rot };
+  }
+
+  /** 이 결과에 '확실한 한글'이 몇 자나 있는지. 방향을 고를 때 점수로 쓴다. */
+  function hangulScore(pass) {
+    let n = 0;
+    for (const l of pass.lines) {
+      for (const w of l.words) if (w.conf >= 70 && HANGUL_ANY.test(w.text)) n += w.text.length;
+    }
+    return n;
   }
 
   /** 확실하게 읽힌 한글 줄들의 높이 중앙값. 글자가 너무 작은지 판단하는 데 쓴다. */
@@ -404,11 +440,15 @@
       // 잘못 읽은 것으로 본다(실측 확인).
       const onLine = (s) => s.cy > ln.y0 - ln.h * 0.3 && s.cy < ln.y1 + ln.h * 0.3;
       const letters = eng.symbols.filter((s) => onLine(s) && s.conf >= 85 && /^[A-Za-z]$/.test(s.text));
+      // 진짜 영문이면 두 모델이 같은 잉크를 보므로 상자 양끝이 거의 일치한다. 한글을 영문으로
+      // 잘못 읽은 경우는 상자가 눈에 띄게 어긋난다('유'와 'F'가 40px 차이, 실측 확인).
+      // 신뢰도로는 못 가른다. 둘 다 한글 쪽 신뢰도가 17로 똑같이 낮게 나온다.
       const latinLike = (w) => letters.some((s) => {
-        const c = (s.x0 + s.x1) / 2;
-        if (c < w.x0 || c > w.x1) return false;
-        const a = s.x1 - s.x0, b = w.x1 - w.x0;
-        return a > 0 && b > 0 && Math.max(a, b) / Math.min(a, b) < 2;
+        const sw = s.x1 - s.x0, ww = w.x1 - w.x0;
+        if (sw <= 0 || ww <= 0) return false;
+        if (Math.max(sw, ww) / Math.min(sw, ww) >= 2) return false;
+        const tol = ww * 0.35;
+        return Math.abs(s.x0 - w.x0) < tol && Math.abs(s.x1 - w.x1) < tol;
       });
 
       // 상자 겹침만 보면 진짜 한글(딘·버)도 영문으로 오인한다. 영어 모델은 한글도
@@ -544,16 +584,44 @@
     els.rerun.disabled = true;
     try {
       const t0 = performance.now();
-      let built = buildOcrCanvas(1);
+      let built = buildOcrCanvas(1, 0);
+      // 바코드 줄무늬가 세로로 촘촘하면 사진이 옆으로 누워 있다. 그러면 0도로 읽어 볼 필요가
+      // 없다. 바코드가 오른쪽에 있으면 시계 방향으로 돌려야 바로 선다.
+      const sideways = built.colMax > built.rowMax * 1.3;
+      const turns = sideways
+        ? (built.colMaxX > built.canvas.width / 2 ? [90, 270] : [270, 90])
+        : [180, 90, 270];
+      if (sideways) {
+        built = buildOcrCanvas(1, turns[0]);
+        setProgress('방향을 맞추는 중', 0);
+      }
       let kor = await recognizeWith('kor', built.canvas, '한글 읽는 중');
       // 인식 한 번에 1초 남짓의 고정 비용이 붙는다(크기와 무관, 실측 확인). 그래서 속도의
-      // 관건은 이미지 크기가 아니라 '인식 횟수'다. 아래 두 판단이 그래서 있다.
+      // 관건은 이미지 크기가 아니라 '인식 횟수'다. 아래 판단들이 그래서 있다.
+
+      // (0) 사진이 옆으로 누워 있으면 한 글자도 못 읽는다. 바로 서 있을 때는 추가 비용이
+      //     없도록, 제품명·색상 짝이 안 나왔을 때만 방향을 돌려 가며 다시 읽는다.
+      //     방향은 '제품명·색상 짝이 나왔는지'가 아니라 '확실한 한글이 몇 자인지'로 고른다.
+      //     쓰레기 글자끼리도 짝은 만들어지기 때문이다(실측 확인).
+      let best = { built, kor, score: hangulScore(kor) };
+      const strong = best.score >= 6 && labelFormat({ kor, eng: EMPTY_PASS }).includes('/');
+      if (!strong) {
+        for (const rot of turns.filter((r) => r !== built.rot)) {
+          const b2 = buildOcrCanvas(1, rot);
+          const k2 = await recognizeWith('kor', b2.canvas, '방향을 바꿔 읽는 중');
+          const s2 = hangulScore(k2);
+          if (s2 > best.score) best = { built: b2, kor: k2, score: s2 };
+          // 충분히 잘 읽혔으면 남은 방향은 볼 필요가 없다.
+          if (best.score >= 6 && labelFormat({ kor: best.kor, eng: EMPTY_PASS }).includes('/')) break;
+        }
+        built = best.built; kor = best.kor;
+      }
 
       // (1) 한글만으로 이미 제품명·색상 짝이 나왔으면 확대 재시도를 건너뛴다.
       const enough = labelFormat({ kor, eng: EMPTY_PASS }).includes('/');
       const h = textHeight(kor);
       if (!enough && (h === 0 || h < MIN_TEXT_H) && built.scale < 3) {
-        const bigger = buildOcrCanvas(2);
+        const bigger = buildOcrCanvas(2, built.rot);
         if (bigger.scale > built.scale * 1.2) {
           const retry = await recognizeWith('kor', bigger.canvas, '확대해서 다시 읽는 중');
           if (textHeight(retry) > h) { built = bigger; kor = retry; }
