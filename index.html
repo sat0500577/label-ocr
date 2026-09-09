@@ -148,7 +148,9 @@
 
   const MAX_SIDE = 2400;       // 원본 사진을 이 크기까지 줄여 보관한다.
   const OCR_TARGET_W = 1600;   // 인식에 넣기 전 최소한 이 폭이 되도록 확대한다.
-  const OCR_MAX_W = 3200;      // 인식 캔버스 최대 폭. 넘으면 느려지기만 한다.
+  // 이 값을 낮추면 오히려 느려진다. 글자가 작아져 '확대해서 다시 읽기'가 걸리기 때문이다.
+  const OCR_MAX_W = 3200;      // 인식 캔버스 최대 폭
+  const OCR_MAX_SIDE = 3600;   // 인식 캔버스 최대 높이
   const MIN_TEXT_H = 42;       // 글자 줄 높이가 이보다 작으면 확대해 한 번 더 읽는다.
   const MIN_CONF = 55;         // 이보다 낮은 신뢰도의 단어는 쓰레기로 보고 버린다.
 
@@ -246,10 +248,45 @@
    * 절대 축소하지 않는다. 라벨이 화면에서 작게 찍힌 사진을 줄이면 글자가 뭉개져
    * 한 글자도 못 읽는다(실측 확인). zoom은 글자가 너무 작을 때 2차 시도에 쓴다.
    */
+  /**
+   * 사진 가장자리의 단색 여백(카메라·화면캡처가 붙이는 검은 띠 등)을 잘라낸다.
+   * 넓은 단색 영역이 있으면 Tesseract의 이진화 기준이 그쪽으로 쏠려, 라벨 글자를
+   * 통째로 못 읽는다. 이 여백만 빼면 같은 사진이 정상 인식된다(실측 확인).
+   */
+  function trimUniformBorder(rect) {
+    const ctx = sourceCanvas.getContext('2d', { willReadFrequently: true });
+    const p = ctx.getImageData(rect.x, rect.y, rect.w, rect.h).data;
+    const W = rect.w, H = rect.h;
+    const at = (x, y) => {
+      const i = (y * W + x) * 4;
+      return (p[i] * 0.299 + p[i + 1] * 0.587 + p[i + 2] * 0.114) | 0;
+    };
+    const flatRow = (y) => {
+      let mn = 255, mx = 0;
+      for (let x = 0; x < W; x += 2) { const v = at(x, y); if (v < mn) mn = v; if (v > mx) mx = v; }
+      return mx - mn < 25;
+    };
+    const flatCol = (x) => {
+      let mn = 255, mx = 0;
+      for (let y = 0; y < H; y += 2) { const v = at(x, y); if (v < mn) mn = v; if (v > mx) mx = v; }
+      return mx - mn < 25;
+    };
+    let top = 0, bottom = H - 1, left = 0, right = W - 1;
+    const maxY = Math.floor(H * 0.45), maxX = Math.floor(W * 0.45);
+    while (top < maxY && flatRow(top)) top++;
+    while (bottom > H - 1 - maxY && flatRow(bottom)) bottom--;
+    while (left < maxX && flatCol(left)) left++;
+    while (right > W - 1 - maxX && flatCol(right)) right--;
+    if (bottom - top < H * 0.2 || right - left < W * 0.2) return rect;
+    return { x: rect.x + left, y: rect.y + top, w: right - left + 1, h: bottom - top + 1 };
+  }
+
   function buildOcrCanvas(zoom = 1) {
-    const r = cropRect || { x: 0, y: 0, w: sourceCanvas.width, h: sourceCanvas.height };
+    const base = cropRect || { x: 0, y: 0, w: sourceCanvas.width, h: sourceCanvas.height };
+    const r = trimUniformBorder(base);
     let scale = Math.min(3, Math.max(1, OCR_TARGET_W / r.w)) * zoom;
-    scale = Math.min(scale, OCR_MAX_W / r.w);          // 너무 커지면 느려진다
+    // 너무 커지면 느려지기만 한다. 폭·높이 양쪽을 막는다.
+    scale = Math.min(scale, OCR_MAX_W / r.w, OCR_MAX_SIDE / r.h);
     const c = document.createElement('canvas');
     c.width = Math.round(r.w * scale);
     c.height = Math.round(r.h * scale);
@@ -336,56 +373,79 @@
     const kept = cands.filter((l) => l.h >= refH * 0.4).sort((a, b) => a.y0 - b.y0);
     if (!kept.length) return '';
 
-    // 3. 왼쪽 열만 남긴다. 라벨은 왼쪽에 제품명·색상, 오른쪽에 분류명·기호가 오는 구조다.
-    //    이름 줄을 못 읽었을 때 오른쪽 분류명을 제품명으로 잘못 집는 것을 막는다.
-    const leftEdge = Math.min(...kept.map((l) => l.x0));
-    const column = kept.filter((l) => l.x0 - leftEdge <= refH * 2.5);
 
     // 한 줄을 문자열로: 왼쪽 덩어리만 취하고(글자 높이보다 넓은 간격에서 끊음),
     // 첫 한글보다 왼쪽에 있는 영문(HP 등)을 영어 패스에서 가져와 앞에 붙인다.
     const build = (ln) => {
+      // 끊는 간격은 반드시 '이 줄의 높이'로 잰다. 여러 줄의 중앙값을 쓰면 잔글씨 줄이
+      // 섞여 기준이 작아지고, 제품명이 중간에서 잘린다(H딘버 같은 결과, 실측 확인).
+      // Tesseract가 이미 열을 나눠 주므로 이 규칙은 열이 한 줄로 붙었을 때의 보험이다.
       const sorted = ln.words.slice().sort((a, b) => a.x0 - b.x0);
       const group = [sorted[0]];
       for (let i = 1; i < sorted.length; i++) {
-        if (sorted[i].x0 - group[group.length - 1].x1 > refH * 1.2) break;
+        if (sorted[i].x0 - group[group.length - 1].x1 > ln.h * 2.5) break;
         group.push(sorted[i]);
       }
       // 확실하게 읽힌 첫 한글이 이 줄의 기준점. 그보다 왼쪽은 한국어 모델이 영문을
       // 엉뚱한 한글로 바꿔 놓은 자리라, 영어 패스의 글자로 갈아 끼운다.
       // 가장 왼쪽의 '믿을 만한 한글'이 기준점이다. 신뢰도만 보고 고르면 기준점이 오른쪽으로
       // 밀려, 그 왼쪽 한글까지 영문으로 덧붙는다(HPE딘버일자 같은 결과, 실측 확인).
-      const anchor = group.find((w) => w.conf >= MIN_CONF && HANGUL_ANY.test(w.text)) ||
+      // 이 줄 위에 있는 영문 글자들. 한국어 모델이 'H'를 '너'로 신뢰도 90에 읽어 버리므로
+      // 신뢰도로는 걸러낼 수 없다. 대신 영어 글자와 '상자가 거의 겹치는' 한글은 영문을
+      // 잘못 읽은 것으로 본다(실측 확인).
+      const onLine = (s) => s.cy > ln.y0 - ln.h * 0.3 && s.cy < ln.y1 + ln.h * 0.3;
+      const letters = eng.symbols.filter((s) => onLine(s) && s.conf >= 85 && /^[A-Za-z]$/.test(s.text));
+      const latinLike = (w) => letters.some((s) => {
+        const c = (s.x0 + s.x1) / 2;
+        if (c < w.x0 || c > w.x1) return false;
+        const a = s.x1 - s.x0, b = w.x1 - w.x0;
+        return a > 0 && b > 0 && Math.max(a, b) / Math.min(a, b) < 2;
+      });
+
+      // 상자 겹침만 보면 진짜 한글(딘·버)도 영문으로 오인한다. 영어 모델은 한글도
+      // 알파벳으로 자신 있게 읽기 때문이다. 그래서 '줄 맨 앞에서 연속으로 이어지는
+      // 두 글자까지'만 영문 오인식 후보로 본다. 제품 코드는 줄 맨 앞에 짧게 붙는다.
+      let skip = 0;
+      while (skip < group.length && skip < 2 &&
+             HANGUL_ANY.test(group[skip].text) && latinLike(group[skip])) skip++;
+
+      // 기준점: 그 뒤의 첫 한글. 여기서부터가 진짜 제품명이다.
+      const anchor = group.slice(skip).find((w) => HANGUL_ANY.test(w.text)) ||
                      group.find((w) => HANGUL_ANY.test(w.text)) || group[0];
       const cutX = anchor.x0;
       const prefix = eng.symbols
-        .filter((s) => s.cy > ln.y0 - ln.h * 0.3 && s.cy < ln.y1 + ln.h * 0.3 &&
-                       s.conf >= 60 && s.x1 <= cutX + refH * 0.1 && s.x0 >= cutX - refH * 3 &&
-                       /^[A-Za-z]$/.test(s.text))
+        .filter((s) => onLine(s) && s.conf >= 60 && /^[A-Za-z]$/.test(s.text) &&
+                       s.x1 <= cutX + ln.h * 0.1 && s.x0 >= cutX - ln.h * 3)
         .sort((a, b) => a.x0 - b.x0)
         .map((s) => s.text).join('')
         .slice(0, 4);   // 제품 코드는 짧다. 길면 한글을 영문으로 오인한 것이다.
-      const leading = group.filter((w) => w.x1 <= cutX);
-      const rest = group.filter((w) => w.x1 > cutX);
-      // 영문을 찾았으면 그 자리의 한글 오인식은 버리고, 못 찾았으면 믿을 만한 것만 남긴다.
-      const head = prefix || leading.filter((w) => w.conf >= MIN_CONF).map((w) => w.text).join('');
-      return head + rest.map((w) => w.text).join('');
+      return prefix + group.filter((w) => w.x0 >= cutX).map((w) => w.text).join('');
     };
 
-    // 4. 제품명: 왼쪽 열에서 글자가 남는 첫 줄.
-    let nameIdx = -1, name = '';
-    for (let i = 0; i < column.length; i++) {
-      const t = build(column[i]).replace(NON_NAME, '');
-      if (t) { nameIdx = i; name = t; break; }
+    // 3. 제품명·색상은 같은 열에 위아래로 붙어 있다. 그런 '짝'이 되는 줄을 먼저 찾는다.
+    //    이름 줄을 못 읽었을 때 오른쪽 분류명(헤어집게)을 제품명으로 집는 것을 막는다.
+    const texts = kept.map(build);
+    let best = null;
+    for (let i = 0; i < kept.length; i++) {
+      const name = texts[i].replace(NON_NAME, '');
+      if (!name) continue;
+      for (let j = i + 1; j < kept.length; j++) {
+        if (Math.abs(kept[j].x0 - kept[i].x0) > refH * 2.5) continue;
+        const color = texts[j].replace(NON_HANGUL, '');
+        if (color) { best = `${name}/${color}`; break; }
+      }
+      if (best) break;
     }
-    if (nameIdx < 0) return '';
+    if (best) return best;
 
-    // 5. 색상: 그 아래 첫 줄.
-    let color = '';
-    for (let i = nameIdx + 1; i < column.length; i++) {
-      const t = build(column[i]).replace(NON_HANGUL, '');
-      if (t) { color = t; break; }
+    // 4. 짝을 못 찾으면 가장 왼쪽 줄의 제품명만이라도 돌려준다.
+    const leftEdge = Math.min(...kept.map((l) => l.x0));
+    for (let i = 0; i < kept.length; i++) {
+      if (kept[i].x0 - leftEdge > refH * 2.5) continue;
+      const name = texts[i].replace(NON_NAME, '');
+      if (name) return name;
     }
-    return color ? `${name}/${color}` : name;
+    return '';
   }
 
   // 한글만: 한글이 아닌 구간은 공백으로, 줄 구조 유지, 한글 없는 줄은 버림
