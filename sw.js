@@ -1,7 +1,7 @@
 // 오프라인 캐시. https(또는 localhost)에서만 동작한다.
 // - 화면(index.html 등)은 네트워크 우선: 고친 내용이 바로 반영되게.
 // - 엔진·모델(vendor/)은 캐시 우선: 한 번 받으면 다시 안 받고, 인터넷 없이도 동작.
-const CACHE = 'label-ocr-v5';
+const CACHE = 'label-ocr-v6';
 const PRECACHE = ['./', './index.html', './manifest.json', './icon.png'];
 
 self.addEventListener('install', (e) => {

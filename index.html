@@ -147,12 +147,17 @@
   };
 
   const MAX_SIDE = 2400;       // 원본 사진을 이 크기까지 줄여 보관한다.
+  // 이 값을 낮추면 오히려 느려지고 정확도도 떨어진다. 글자가 작아져 '확대해서 다시 읽기'가
+  // 걸리기 때문이다(1300으로 낮췄더니 8초, HP가 H로 줄어듦 — 실측 확인).
   const OCR_TARGET_W = 1600;   // 인식에 넣기 전 최소한 이 폭이 되도록 확대한다.
   // 이 값을 낮추면 오히려 느려진다. 글자가 작아져 '확대해서 다시 읽기'가 걸리기 때문이다.
   const OCR_MAX_W = 3200;      // 인식 캔버스 최대 폭
   const OCR_MAX_SIDE = 3600;   // 인식 캔버스 최대 높이
+  const ENG_TEXT_H = 60;       // 영문 패스는 글자 높이가 이 정도가 되도록 줄여 읽는다.
   const MIN_TEXT_H = 42;       // 글자 줄 높이가 이보다 작으면 확대해 한 번 더 읽는다.
   const MIN_CONF = 55;         // 이보다 낮은 신뢰도의 단어는 쓰레기로 보고 버린다.
+
+  const EMPTY_PASS = { lines: [], symbols: [], text: '' };
 
   let worker = null;           // Tesseract 워커. 한 번 만들어 언어만 바꿔가며 재사용한다.
   let workerLang = '';
@@ -200,9 +205,10 @@
 
     // 행마다 그 행의 밝기 범위로 기준을 따로 잡는다. 사진 전체에 하나의 기준을 쓰면
     // 배경이 넓거나 조명이 고르지 않은 사진에서 바코드 구조가 통째로 안 보인다(실측 확인).
+    // 바코드 띠는 높이의 5% 이상이므로 두 줄에 한 번만 봐도 놓치지 않는다.
     const dens = new Float32Array(H);   // 전환 횟수 / 글자가 놓인 구간의 폭
     const wide = new Uint8Array(H);     // 폭이 충분히 넓은 행인지
-    for (let y = 0; y < H; y++) {
+    for (let y = 0; y < H; y += 2) {
       let mn = 255, mx = 0;
       for (let x = 0; x < W; x++) { const v = gray[y * W + x]; if (v < mn) mn = v; if (v > mx) mx = v; }
       if (mx - mn < 40) continue;       // 거의 단색인 행은 건너뛴다
@@ -215,7 +221,10 @@
         prev = cur;
       }
       const span = first < 0 ? 0 : (last - first + 1);
-      if (span > W * 0.3) { dens[y] = n / span; wide[y] = 1; }
+      if (span > W * 0.3) {
+        dens[y] = n / span; wide[y] = 1;
+        if (y + 1 < H) { dens[y + 1] = dens[y]; wide[y + 1] = 1; }
+      }
     }
 
     // 가장 촘촘한 행을 기준으로 자른다. 글자 줄의 촘촘함은 바코드의 절반 남짓이다.
@@ -414,8 +423,10 @@
                      group.find((w) => HANGUL_ANY.test(w.text)) || group[0];
       const cutX = anchor.x0;
       const prefix = eng.symbols
+        // 상자 '끝'이 아니라 '중심'으로 자른다. 끝으로 재면 옆 글자와 몇 픽셀 겹쳤다는
+        // 이유로 멀쩡한 P가 빠진다(HP가 H로 줄어듦, 실측 확인).
         .filter((s) => onLine(s) && s.conf >= 60 && /^[A-Za-z]$/.test(s.text) &&
-                       s.x1 <= cutX + ln.h * 0.1 && s.x0 >= cutX - ln.h * 3)
+                       (s.x0 + s.x1) / 2 < cutX && s.x0 >= cutX - ln.h * 3)
         .sort((a, b) => a.x0 - b.x0)
         .map((s) => s.text).join('')
         .slice(0, 4);   // 제품 코드는 짧다. 길면 한글을 영문으로 오인한 것이다.
@@ -534,17 +545,41 @@
     try {
       const t0 = performance.now();
       let built = buildOcrCanvas(1);
-      let kor = await recognizeWith('kor', built.canvas, '한글 읽는 중 (1/2)');
-      // 라벨이 화면에서 작게 찍히면 글자가 너무 작아 못 읽는다. 그럴 때만 2배로 키워 다시 읽는다.
+      let kor = await recognizeWith('kor', built.canvas, '한글 읽는 중');
+      // 인식 한 번에 1초 남짓의 고정 비용이 붙는다(크기와 무관, 실측 확인). 그래서 속도의
+      // 관건은 이미지 크기가 아니라 '인식 횟수'다. 아래 두 판단이 그래서 있다.
+
+      // (1) 한글만으로 이미 제품명·색상 짝이 나왔으면 확대 재시도를 건너뛴다.
+      const enough = labelFormat({ kor, eng: EMPTY_PASS }).includes('/');
       const h = textHeight(kor);
-      if ((h === 0 || h < MIN_TEXT_H) && built.scale < 3) {
+      if (!enough && (h === 0 || h < MIN_TEXT_H) && built.scale < 3) {
         const bigger = buildOcrCanvas(2);
         if (bigger.scale > built.scale * 1.2) {
           const retry = await recognizeWith('kor', bigger.canvas, '확대해서 다시 읽는 중');
           if (textHeight(retry) > h) { built = bigger; kor = retry; }
         }
       }
-      const eng = await recognizeWith('eng', built.canvas, '영문 읽는 중 (2/2)');
+
+      // (2) 영문 패스는 제품명 앞머리(HP)를 되살리는 데만 쓴다. 화면을 '줄이는' 것은 되지만
+      //     '잘라내는' 것은 안 된다. 일부만 잘라 읽으면 Tesseract의 명암 기준이 달라져
+      //     앞머리 영문을 통째로 놓친다(실측 확인). 제품 코드는 큰 글자라 축소에는 견딘다.
+      // 축소 비율은 화면 폭이 아니라 '글자 크기'로 정한다. 폭만 보고 줄이면 라벨이 작게
+      // 찍힌 사진에서 앞머리 영문이 뭉개져 사라진다(HP가 H로 줄어듦, 실측 확인).
+      const th = textHeight(kor);
+      const shrink = th ? Math.min(1, Math.max(0.5, ENG_TEXT_H / th)) : 1;
+      let engCanvas = built.canvas;
+      if (shrink < 0.95) {
+        engCanvas = document.createElement('canvas');
+        engCanvas.width = Math.round(built.canvas.width * shrink);
+        engCanvas.height = Math.round(built.canvas.height * shrink);
+        const ex = engCanvas.getContext('2d');
+        ex.imageSmoothingQuality = 'high';
+        ex.drawImage(built.canvas, 0, 0, engCanvas.width, engCanvas.height);
+      }
+      const eng = await recognizeWith('eng', engCanvas, '영문 확인 중');
+      if (shrink < 0.95) {
+        for (const s of eng.symbols) { s.x0 /= shrink; s.x1 /= shrink; s.cy /= shrink; }
+      }
       lastData = { kor, eng };
       applyFilter();
       const sec = ((performance.now() - t0) / 1000).toFixed(1);
@@ -699,6 +734,20 @@
   if ('serviceWorker' in navigator && window.isSecureContext) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
+
+  // 앱을 열자마자 엔진과 모델을 미리 올려 둔다. 이 준비에만 5~6초가 걸려서, 미리 하지 않으면
+  // 첫 사진의 인식 시간에 그대로 얹힌다(실측 확인). 사진을 고르는 동안 끝나 있게 한다.
+  (async () => {
+    setStatus('인식 엔진 준비 중…');
+    try {
+      await getWorker();
+      hideProgress();
+      if (!lastData) setStatus('준비됐습니다. 사진을 찍거나 선택하세요.', 'ok');
+    } catch {
+      hideProgress();
+      setStatus('사진을 찍거나 선택하면 자동으로 읽습니다.');
+    }
+  })();
 
   // 테스트·디버깅용
   window.hangulOcr = {
