@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f6feb">
+<!-- iPhone '홈 화면에 추가' 시 주소창 없는 전체화면 앱으로 뜨게 한다. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="라벨 OCR">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="icon" href="icon.png">
+<title>라벨 OCR</title>
+<style>
+  /* 라이트 기본값 + 다크 오버라이드. 하드코딩 색 대신 변수만 쓴다. */
+  :root {
+    --bg: #f5f6f8; --card: #ffffff; --fg: #1b1f24; --muted: #6b7280; --line: #e3e6ea;
+    --accent: #1f6feb; --accent-fg: #ffffff; --ok: #1a7f37; --err: #c62828; --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1216; --card: #181c22; --fg: #e6e8eb; --muted: #9aa3ad;
+      --line: #2a3038; --accent: #4c8dff; --ok: #3fb950; --err: #ff6b6b;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.5 -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif; }
+  body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  main { max-width: 640px; margin: 0 auto; padding: 16px; display: grid; gap: 14px; }
+  h1 { font-size: 20px; margin: 4px 0 0; display: flex; align-items: baseline; justify-content: space-between; }
+  h1 small { font-size: 12px; font-weight: 400; color: var(--muted); }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+
+  .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .btn { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 56px; margin: 0;
+    border-radius: var(--radius); border: 1px solid var(--line); background: var(--card); color: var(--fg);
+    font: inherit; font-weight: 600; cursor: pointer; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
+  .btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+  .btn:active { filter: brightness(.92); }
+  .btn:disabled { opacity: .5; pointer-events: none; }
+  .btn.small { min-height: 40px; padding: 0 14px; font-size: 14px; font-weight: 500; }
+  input[type=file] { display: none; }
+
+  .preview { display: none; margin-top: 12px; }
+  .preview img { display: block; width: 100%; max-height: 40vh; object-fit: contain; border-radius: 10px; background: var(--bg); }
+
+  /* 출력 형식 선택: 세그먼트 버튼 */
+  .modes { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .modes label { display: flex; align-items: center; justify-content: center; min-height: 40px; font-size: 14px; cursor: pointer;
+    border-right: 1px solid var(--line); -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
+  .modes label:last-child { border-right: 0; }
+  .modes input { display: none; }
+  .modes input:checked + span { color: var(--accent); font-weight: 700; }
+  .modes label:has(input:checked) { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
+  .progress { display: none; align-items: center; gap: 10px; color: var(--muted); font-size: 14px; margin-top: 8px; }
+  .bar { flex: 1; height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+
+  .big { width: 100%; min-height: 64px; padding: 12px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--bg); color: var(--fg); font: inherit; font-size: 22px; font-weight: 700; line-height: 1.5; }
+  textarea.big { resize: vertical; }
+  textarea.big.plain { font-size: 16px; font-weight: 400; min-height: 160px; line-height: 1.7; }
+  .meta { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 8px; }
+  .meta .count { color: var(--muted); font-size: 13px; }
+  .meta .actions { display: flex; gap: 8px; }
+  .status { min-height: 20px; margin-top: 8px; font-size: 14px; color: var(--muted); }
+  .status.ok { color: var(--ok); }
+  .status.err { color: var(--err); }
+  .hint { color: var(--muted); font-size: 13px; line-height: 1.6; margin: 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>라벨 OCR <small>제품명/색상 추출</small></h1>
+
+  <section class="card">
+    <div class="btns">
+      <label class="btn primary" for="camera">📷 사진 찍기</label>
+      <label class="btn" for="gallery">🖼️ 앨범에서 선택</label>
+      <!-- capture 속성: 모바일에서는 카메라를 바로 연다. PC에서는 파일 선택창. -->
+      <input id="camera" type="file" accept="image/*" capture="environment">
+      <input id="gallery" type="file" accept="image/*">
+    </div>
+    <div class="preview" id="preview"><img id="previewImg" alt="선택한 사진 미리보기"></div>
+  </section>
+
+  <section class="card">
+    <div class="modes" id="modes">
+      <label><input type="radio" name="mode" value="label" checked><span>제품명/색상</span></label>
+      <label><input type="radio" name="mode" value="hangul"><span>한글만</span></label>
+      <label><input type="radio" name="mode" value="all"><span>전체</span></label>
+    </div>
+    <div class="progress" id="progress"><span id="progressLabel">준비 중</span><div class="bar"><i id="progressBar"></i></div></div>
+    <div class="row">
+      <div class="status" id="status" style="margin:0">사진을 찍거나 선택하면 자동으로 읽습니다.</div>
+      <button class="btn small" id="rerun" disabled>다시 인식</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <textarea class="big" id="result" rows="2" placeholder="예: HP딘버일자/그레이" spellcheck="false"></textarea>
+    <div class="meta">
+      <span class="count" id="count"></span>
+      <span class="actions">
+        <button class="btn small" id="share" disabled hidden>공유</button>
+        <button class="btn small primary" id="copy" disabled>복사</button>
+      </span>
+    </div>
+  </section>
+
+  <p class="hint">라벨이 화면에 크게, 똑바로 나오게 찍을수록 정확합니다. 제품명은 라벨 첫 줄 왼쪽, 색상은 둘째 줄 왼쪽 글자를 씁니다.
+    처음 실행할 때만 인식 모델(약 12MB)을 받아 옵니다.</p>
+</main>
+
+<!-- Tesseract.js: 브라우저에서 동작하는 OCR 엔진. 엔진·모델 파일은 vendor/ 에 같이 둔다(외부 인터넷 불필요). -->
+<script src="vendor/tesseract.min.js"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const els = {
+    camera: $('camera'), gallery: $('gallery'), preview: $('preview'), previewImg: $('previewImg'),
+    modes: $('modes'), rerun: $('rerun'), progress: $('progress'),
+    progressLabel: $('progressLabel'), progressBar: $('progressBar'), status: $('status'),
+    result: $('result'), count: $('count'), copy: $('copy'), share: $('share'),
+  };
+
+  const MAX_SIDE = 1800;   // 이보다 긴 변은 축소. 인식 속도와 정확도의 절충점.
+  let worker = null;       // Tesseract 워커는 한 번 만들어 재사용한다.
+  let lastCanvas = null;   // 마지막 인식에 쓴 이미지. '다시 인식'에 재사용.
+  let lastData = null;     // 마지막 인식 결과(단어 좌표 포함). 형식만 바꿀 때 재인식하지 않기 위해 보관.
+  let busy = false;
+
+  const mode = () => (document.querySelector('input[name=mode]:checked') || {}).value || 'label';
+
+  // ---- 상태 표시 ----------------------------------------------------------
+  function setStatus(msg, kind = '') { els.status.textContent = msg; els.status.className = 'status ' + kind; }
+  function setProgress(label, ratio) {
+    els.progress.style.display = 'flex';
+    els.progressLabel.textContent = label;
+    els.progressBar.style.width = Math.round((ratio || 0) * 100) + '%';
+  }
+  function hideProgress() { els.progress.style.display = 'none'; }
+
+  // ---- 텍스트 필터 ----------------------------------------------------------
+  const HANGUL = /[가-힣ㄱ-ㆎ]/;
+  const NON_HANGUL = /[^가-힣ㄱ-ㆎ]+/g;
+  const NON_LETTER = /[^A-Za-z가-힣ㄱ-ㆎ]+/g;   // 영문자 + 한글만 남길 때
+
+  // 한글만: 한글이 아닌 구간은 공백으로, 줄 구조 유지, 한글 없는 줄은 버림
+  function keepHangul(text) {
+    return text.split(/\r?\n/)
+      .map((line) => line.replace(NON_HANGUL, ' ').replace(/\s+/g, ' ').trim())
+      .filter((line) => HANGUL.test(line))
+      .join('\n');
+  }
+  function tidy(text) {
+    return text.split(/\r?\n/).map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n');
+  }
+
+  /**
+   * 라벨 형식: "제품명/색상".
+   * 단어 좌표를 써서 (1) 잔글씨를 버리고 (2) 줄을 묶은 뒤 (3) 각 줄의 왼쪽 덩어리만 취한다.
+   * 라벨 구조: 1줄 왼쪽=제품명, 2줄 왼쪽=색상, 오른쪽=분류·기호, 아래=가격·바코드.
+   *  - 제품명은 영문자+한글만 남긴다(숫자·기호 제거). 예: HP딘버일자3 → HP딘버일자
+   *  - 색상은 한글만 남긴다.
+   */
+  function toWords(data) {
+    return (data && data.words || [])
+      .filter((w) => w.text && w.text.trim() && w.bbox)
+      .map((w) => ({ text: w.text.trim(), x0: w.bbox.x0, x1: w.bbox.x1,
+                     h: w.bbox.y1 - w.bbox.y0, cy: (w.bbox.y0 + w.bbox.y1) / 2 }));
+  }
+
+  /**
+   * 한국어 모델은 영문(HP)을, 영어 모델은 한글을 깨뜨린다. 그래서 두 모델을 따로 돌린 뒤,
+   * 한국어 결과에서 한글이 없는 단어만 같은 자리의 영어 결과로 바꿔 넣는다.
+   * 자리가 거의 일치할 때만 바꾸므로, 영어 모델이 한글 위에 만든 넓은 쓰레기 단어는 끼어들지 못한다.
+   */
+  function mergeLatin(word, engWords, refH) {
+    if (HANGUL.test(word.text)) return word.text;
+    const tol = refH * 0.5;
+    const hits = engWords.filter((e) =>
+      Math.abs(e.cy - word.cy) < tol &&
+      Math.abs(e.x0 - word.x0) < tol && Math.abs(e.x1 - word.x1) < tol &&
+      /^[A-Za-z0-9&+\-.]+$/.test(e.text));
+    return hits.length ? hits.sort((a, b) => a.x0 - b.x0).map((e) => e.text).join('') : word.text;
+  }
+
+  function labelFormat(data) {
+    const words = toWords(data.kor);
+    const engWords = toWords(data.eng);
+    if (!words.length) return '';
+
+    // 기준 글자 높이: 한글이 들어간 단어 중 가장 큰 것. 그 절반 미만은 포장지 잔글씨로 보고 버린다.
+    const hangulWords = words.filter((w) => HANGUL.test(w.text));
+    const refH = Math.max(...(hangulWords.length ? hangulWords : words).map((w) => w.h));
+    const big = words.filter((w) => w.h >= refH * 0.45).sort((a, b) => a.cy - b.cy);
+
+    // 세로 중심이 가까운 단어끼리 한 줄로 묶는다.
+    const rows = [];
+    for (const w of big) {
+      const r = rows[rows.length - 1];
+      if (r && Math.abs(w.cy - r.cy) < refH * 0.5) {
+        r.words.push(w);
+        r.cy = r.words.reduce((s, x) => s + x.cy, 0) / r.words.length;
+      } else {
+        rows.push({ cy: w.cy, words: [w] });
+      }
+    }
+
+    // 각 줄에서 맨 왼쪽 단어부터, 글자 높이보다 큰 간격이 나오기 전까지를 한 덩어리로 본다.
+    const leftGroups = rows.map((r) => {
+      r.words.sort((a, b) => a.x0 - b.x0);
+      const g = [r.words[0]];
+      for (let i = 1; i < r.words.length; i++) {
+        const gap = r.words[i].x0 - g[g.length - 1].x1;
+        if (gap > refH * 1.2) break;
+        g.push(r.words[i]);
+      }
+      return g.map((w) => mergeLatin(w, engWords, refH)).join('');
+    });
+
+    // 글자(영문·한글)가 없는 줄(가격·바코드·기호)은 버리고 위에서 두 줄을 쓴다.
+    const textRows = leftGroups.map((t) => t.replace(NON_LETTER, '')).filter(Boolean);
+    const name = textRows[0] || '';
+    const color = (textRows[1] || '').replace(NON_HANGUL, '');
+    return color ? `${name}/${color}` : name;
+  }
+
+  function applyFilter() {
+    const m = mode();
+    const raw = lastData ? (lastData.kor.text || '') : '';
+    let out = '';
+    if (lastData) out = m === 'label' ? labelFormat(lastData) : m === 'hangul' ? keepHangul(raw) : tidy(raw);
+    els.result.value = out;
+    els.result.classList.toggle('plain', m !== 'label');
+    els.result.rows = m === 'label' ? 2 : 8;
+    els.count.textContent = out ? out.replace(/\s/g, '').length + '자' : '';
+    els.copy.disabled = !out;
+    els.share.disabled = !out;
+  }
+
+  // ---- 이미지 로드 (EXIF 회전 반영 + 축소) --------------------------------
+  async function loadToCanvas(file) {
+    let bitmap;
+    try {
+      bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    } catch {
+      // 폴백: <img>로 읽는다. 최신 Safari/Chrome은 <img>도 EXIF 회전을 반영한다.
+      bitmap = await new Promise((res, rej) => {
+        const img = new Image();
+        img.onload = () => res(img); img.onerror = rej;
+        img.src = URL.createObjectURL(file);
+      });
+    }
+    const w = bitmap.width, h = bitmap.height;
+    const scale = Math.min(1, MAX_SIDE / Math.max(w, h));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(w * scale); canvas.height = Math.round(h * scale);
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    if (bitmap.close) bitmap.close();
+    return canvas;
+  }
+
+  // ---- OCR ---------------------------------------------------------------
+  let workerLang = '';     // 워커가 지금 초기화된 언어. 바꿀 때만 reinitialize 한다.
+  let passLabel = '';      // 진행 표시용
+
+  async function getWorker() {
+    if (worker) return worker;
+    setProgress('인식 엔진 준비 중', 0);
+    // 두 모델을 한꺼번에 받아 두고(다운로드 1회), 인식 때 언어를 바꿔가며 두 번 돌린다.
+    // 'kor+eng'로 한 번에 돌리면 "HP딘버일자"처럼 영문 뒤 한글을 영문 단어로 오인해 깨뜨린다.
+    worker = await Tesseract.createWorker(['kor', 'eng'], 1, {
+      workerPath: 'vendor/worker.min.js',
+      corePath: 'vendor/core',
+      langPath: 'vendor/lang',
+      logger: (m) => {
+        if (m.status === 'recognizing text') setProgress(passLabel || '글자 읽는 중', m.progress);
+        else if (/loading|initializing/.test(m.status)) setProgress('모델 불러오는 중', m.progress);
+      },
+    });
+    workerLang = 'kor+eng';
+    return worker;
+  }
+
+  async function recognizeWith(lang, canvas, label) {
+    const w = await getWorker();
+    if (workerLang !== lang) { await w.reinitialize(lang); workerLang = lang; }
+    passLabel = label;
+    const { data } = await w.recognize(canvas);
+    return data;
+  }
+
+  async function recognize(canvas) {
+    if (busy) return;
+    busy = true;
+    els.rerun.disabled = true;
+    try {
+      const t0 = performance.now();
+      const kor = await recognizeWith('kor', canvas, '한글 읽는 중 (1/2)');
+      const eng = await recognizeWith('eng', canvas, '영문 읽는 중 (2/2)');
+      lastData = { kor, eng };
+      applyFilter();
+      const sec = ((performance.now() - t0) / 1000).toFixed(1);
+      if (els.result.value) setStatus(`인식 완료 · ${sec}초`, 'ok');
+      else setStatus('글자를 찾지 못했습니다. 라벨을 더 크게, 정면으로 찍어 보세요.', 'err');
+    } catch (e) {
+      console.error(e);
+      setStatus('인식에 실패했습니다: ' + (e && e.message ? e.message : e), 'err');
+    } finally {
+      hideProgress();
+      busy = false;
+      els.rerun.disabled = !lastCanvas;
+    }
+  }
+
+  async function handleFile(file) {
+    if (!file) return;
+    lastData = null; applyFilter();
+    setStatus('사진 불러오는 중…');
+    try {
+      lastCanvas = await loadToCanvas(file);
+    } catch (e) {
+      setStatus('사진을 열 수 없습니다.', 'err');
+      return;
+    }
+    els.previewImg.src = lastCanvas.toDataURL('image/jpeg', 0.8);
+    els.preview.style.display = 'block';
+    await recognize(lastCanvas);
+  }
+
+  // ---- 복사 / 공유 --------------------------------------------------------
+  // http(비보안 컨텍스트)에서는 navigator.clipboard가 없으므로 선택+execCommand로 폴백한다.
+  async function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    const ta = els.result;
+    ta.focus();
+    ta.setSelectionRange(0, ta.value.length);   // iOS Safari는 select()만으로는 선택이 안 된다
+    const ok = document.execCommand('copy');
+    ta.setSelectionRange(0, 0);
+    ta.blur();
+    if (!ok) throw new Error('execCommand failed');
+  }
+
+  // ---- 이벤트 --------------------------------------------------------------
+  for (const input of [els.camera, els.gallery]) {
+    input.addEventListener('change', () => { handleFile(input.files[0]); input.value = ''; });
+  }
+  els.modes.addEventListener('change', () => {
+    try { localStorage.setItem('mode', mode()); } catch {}
+    applyFilter();
+  });
+  els.rerun.addEventListener('click', () => lastCanvas && recognize(lastCanvas));
+  els.copy.addEventListener('click', async () => {
+    const text = els.result.value;
+    if (!text) return;
+    try { await copyText(text); setStatus('복사했습니다.', 'ok'); }
+    catch { setStatus('복사에 실패했습니다. 텍스트를 길게 눌러 직접 복사해 주세요.', 'err'); }
+  });
+  if (navigator.share) {   // Web Share는 https에서만 제공된다. 있으면 버튼을 켠다.
+    els.share.hidden = false;
+    els.share.addEventListener('click', () => {
+      if (els.result.value) navigator.share({ text: els.result.value }).catch(() => {});
+    });
+  }
+
+  // 마지막 형식 복원
+  try {
+    const v = localStorage.getItem('mode');
+    const r = v && document.querySelector(`input[name=mode][value="${v}"]`);
+    if (r) r.checked = true;
+  } catch {}
+  applyFilter();
+
+  // 오프라인 캐시 등록. https(또는 localhost)에서만 동작하고, http LAN 접속에서는 조용히 건너뛴다.
+  if ('serviceWorker' in navigator && (window.isSecureContext)) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+
+  // 테스트·디버깅용: 콘솔에서 파일을 넣어 돌릴 수 있게 노출
+  window.hangulOcr = { handleFile, keepHangul, labelFormat, get lastData() { return lastData; } };
+})();
+</script>
+</body>
+</html>
