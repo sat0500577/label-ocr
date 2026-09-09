@@ -25,6 +25,8 @@
     }
   }
   * { box-sizing: border-box; }
+  /* .btn 의 display:flex 가 hidden 속성을 덮어쓰지 않게 한다 */
+  [hidden] { display: none !important; }
   html, body { margin: 0; background: var(--bg); color: var(--fg);
     font: 16px/1.5 -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif; }
   body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
@@ -44,11 +46,17 @@
   .btn.small { min-height: 40px; padding: 0 14px; font-size: 14px; font-weight: 500; }
   input[type=file] { display: none; }
 
+  /* 미리보기 + 영역 선택 */
   .preview { display: none; margin-top: 12px; }
-  .preview img { display: block; width: 100%; max-height: 40vh; object-fit: contain; border-radius: 10px; background: var(--bg); }
+  .stage { position: relative; touch-action: none; border-radius: 10px; overflow: hidden; background: var(--bg); }
+  .stage img { display: block; width: 100%; max-height: 42vh; object-fit: contain; }
+  .sel { position: absolute; border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent);
+    display: none; pointer-events: none; border-radius: 4px; }
+  .croprow { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+  .croprow span { color: var(--muted); font-size: 13px; }
 
-  /* 출력 형식 선택: 세그먼트 버튼 */
-  .modes { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  /* 출력 형식 선택 */
+  .modes { display: grid; grid-template-columns: 1fr 1fr 1fr; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
   .modes label { display: flex; align-items: center; justify-content: center; min-height: 40px; font-size: 14px; cursor: pointer;
     border-right: 1px solid var(--line); -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
   .modes label:last-child { border-right: 0; }
@@ -62,9 +70,8 @@
   .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
 
   .big { width: 100%; min-height: 64px; padding: 12px; border-radius: 10px; border: 1px solid var(--line);
-    background: var(--bg); color: var(--fg); font: inherit; font-size: 22px; font-weight: 700; line-height: 1.5; }
-  textarea.big { resize: vertical; }
-  textarea.big.plain { font-size: 16px; font-weight: 400; min-height: 160px; line-height: 1.7; }
+    background: var(--bg); color: var(--fg); font: inherit; font-size: 22px; font-weight: 700; line-height: 1.5; resize: vertical; }
+  .big.plain { font-size: 16px; font-weight: 400; min-height: 160px; line-height: 1.7; }
   .meta { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 8px; }
   .meta .count { color: var(--muted); font-size: 13px; }
   .meta .actions { display: flex; gap: 8px; }
@@ -86,7 +93,16 @@
       <input id="camera" type="file" accept="image/*" capture="environment">
       <input id="gallery" type="file" accept="image/*">
     </div>
-    <div class="preview" id="preview"><img id="previewImg" alt="선택한 사진 미리보기"></div>
+    <div class="preview" id="preview">
+      <div class="stage" id="stage">
+        <img id="previewImg" alt="선택한 사진 미리보기">
+        <div class="sel" id="sel"></div>
+      </div>
+      <div class="croprow">
+        <span id="cropHint">글자 부분을 손가락으로 끌어 선택하면 더 정확합니다</span>
+        <button class="btn small" id="cropClear" hidden>선택 해제</button>
+      </div>
+    </div>
   </section>
 
   <section class="card">
@@ -113,8 +129,8 @@
     </div>
   </section>
 
-  <p class="hint">라벨이 화면에 크게, 똑바로 나오게 찍을수록 정확합니다. 제품명은 라벨 첫 줄 왼쪽, 색상은 둘째 줄 왼쪽 글자를 씁니다.
-    처음 실행할 때만 인식 모델(약 12MB)을 받아 옵니다.</p>
+  <p class="hint">라벨이 화면에 크게, 똑바로 나오게 찍을수록 정확합니다.
+    결과가 이상하면 미리보기에서 제품명·색상 부분만 끌어 선택한 뒤 <b>다시 인식</b>을 누르세요.</p>
 </main>
 
 <!-- Tesseract.js: 브라우저에서 동작하는 OCR 엔진. 엔진·모델 파일은 vendor/ 에 같이 둔다(외부 인터넷 불필요). -->
@@ -123,16 +139,23 @@
 (() => {
   const $ = (id) => document.getElementById(id);
   const els = {
-    camera: $('camera'), gallery: $('gallery'), preview: $('preview'), previewImg: $('previewImg'),
+    camera: $('camera'), gallery: $('gallery'), preview: $('preview'), stage: $('stage'),
+    previewImg: $('previewImg'), sel: $('sel'), cropHint: $('cropHint'), cropClear: $('cropClear'),
     modes: $('modes'), rerun: $('rerun'), progress: $('progress'),
     progressLabel: $('progressLabel'), progressBar: $('progressBar'), status: $('status'),
     result: $('result'), count: $('count'), copy: $('copy'), share: $('share'),
   };
 
-  const MAX_SIDE = 1800;   // 이보다 긴 변은 축소. 인식 속도와 정확도의 절충점.
-  let worker = null;       // Tesseract 워커는 한 번 만들어 재사용한다.
-  let lastCanvas = null;   // 마지막 인식에 쓴 이미지. '다시 인식'에 재사용.
-  let lastData = null;     // 마지막 인식 결과(단어 좌표 포함). 형식만 바꿀 때 재인식하지 않기 위해 보관.
+  const MAX_SIDE = 2000;       // 원본 사진을 이 크기로 줄여 보관한다.
+  const OCR_TARGET_W = 1600;   // 인식에 넣기 전 이 폭이 되도록 확대/축소한다.
+  const MIN_CONF = 55;         // 이보다 낮은 신뢰도의 단어는 쓰레기로 보고 버린다.
+
+  let worker = null;           // Tesseract 워커. 한 번 만들어 언어만 바꿔가며 재사용한다.
+  let workerLang = '';
+  let passLabel = '';
+  let sourceCanvas = null;     // 원본(축소된) 사진
+  let cropRect = null;         // 사용자가 고른 영역 {x, y, w, h} (sourceCanvas 좌표계)
+  let lastData = null;         // 마지막 인식 결과. 형식만 바꿀 때 재인식하지 않기 위해 보관.
   let busy = false;
 
   const mode = () => (document.querySelector('input[name=mode]:checked') || {}).value || 'label';
@@ -146,97 +169,227 @@
   }
   function hideProgress() { els.progress.style.display = 'none'; }
 
-  // ---- 텍스트 필터 ----------------------------------------------------------
-  const HANGUL = /[가-힣ㄱ-ㆎ]/;
-  const NON_HANGUL = /[^가-힣ㄱ-ㆎ]+/g;
-  const NON_LETTER = /[^A-Za-z가-힣ㄱ-ㆎ]+/g;   // 영문자 + 한글만 남길 때
+  // ---- 문자 분류 ------------------------------------------------------------
+  const HANGUL_ANY = /[가-힣ㄱ-ㆎ]/;             // 완성형 + 자모
+  const NON_HANGUL_ANY = /[^가-힣ㄱ-ㆎ]+/g;
+  const NON_HANGUL = /[^가-힣]+/g;
+  // 제품명에 남길 문자: 영문자와 완성형 한글만. 낱자모(ㅎ 등)는 숫자·기호 오인이라 버린다.
+  const NON_NAME = /[^A-Za-z가-힣]+/g;
+  const SPACES = /\s+/g;
+
+  // ---- 이미지 전처리 --------------------------------------------------------
+  /**
+   * 바코드 줄무늬는 Tesseract의 레이아웃 분석을 무너뜨려 글자를 아예 못 읽게 만든다.
+   * 가로 한 줄에서 밝기가 뒤집히는 횟수를 세면 바코드 구간은 글자 구간의 2배 이상이다.
+   * 그런 줄이 이미지 높이의 5% 넘게 이어지면 바코드로 보고 덮는다.
+   * 덮는 색은 반드시 사진의 중간 밝기여야 한다. 흰색으로 덮으면 Tesseract의 이진화
+   * 기준이 밀려 나머지 글자까지 통째로 사라진다(실측 확인).
+   */
+  function suppressBarcode(canvas) {
+    const W = canvas.width, H = canvas.height;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const img = ctx.getImageData(0, 0, W, H);
+    const p = img.data;
+    const gray = new Uint8Array(W * H);
+    for (let i = 0, j = 0; i < p.length; i += 4, j++) {
+      gray[j] = (p[i] * 0.299 + p[i + 1] * 0.587 + p[i + 2] * 0.114) | 0;
+    }
+
+    // Otsu 임계값
+    const hist = new Int32Array(256);
+    for (let i = 0; i < gray.length; i++) hist[gray[i]]++;
+    let sum = 0;
+    for (let i = 0; i < 256; i++) sum += i * hist[i];
+    let sumB = 0, wB = 0, best = -1, thr = 128;
+    for (let t = 0; t < 256; t++) {
+      wB += hist[t];
+      if (!wB) continue;
+      const wF = gray.length - wB;
+      if (!wF) break;
+      sumB += t * hist[t];
+      const diff = (sumB / wB) - ((sum - sumB) / wF);
+      const v = wB * wF * diff * diff;
+      if (v > best) { best = v; thr = t; }
+    }
+
+    // 행별 명암 전환 횟수
+    const tr = new Int32Array(H);
+    for (let y = 0; y < H; y++) {
+      let n = 0, prev = gray[y * W] > thr;
+      for (let x = 1; x < W; x++) {
+        const cur = gray[y * W + x] > thr;
+        if (cur !== prev) { n++; prev = cur; }
+      }
+      tr[y] = n;
+    }
+    const inked = Array.from(tr).filter((v) => v >= 5).sort((a, b) => a - b);
+    if (!inked.length) return { bands: [] };
+    const median = inked[inked.length >> 1];
+    const cut = Math.max(median * 1.6, W * 0.025);
+
+    const bands = [];
+    let start = -1;
+    for (let y = 0; y <= H; y++) {
+      const hot = y < H && tr[y] >= cut;
+      if (hot) { if (start < 0) start = y; }
+      else if (start >= 0) {
+        if (y - start >= H * 0.05) bands.push([start, y]);
+        start = -1;
+      }
+    }
+    if (!bands.length) return { bands: [] };
+
+    // 덮는 색: 사진 전체의 중간 밝기
+    const mid = Array.from(gray).sort((a, b) => a - b)[gray.length >> 1];
+    ctx.fillStyle = `rgb(${mid},${mid},${mid})`;
+    for (const [a, b] of bands) ctx.fillRect(0, Math.max(0, a - 3), W, (b - a) + 6);
+    return { bands };
+  }
+
+  /** 인식용 캔버스를 만든다: (선택 영역 자르기) → 적정 크기로 조절 → 바코드 덮기 */
+  function buildOcrCanvas() {
+    const r = cropRect || { x: 0, y: 0, w: sourceCanvas.width, h: sourceCanvas.height };
+    const scale = Math.min(3, Math.max(0.5, OCR_TARGET_W / r.w));
+    const c = document.createElement('canvas');
+    c.width = Math.round(r.w * scale);
+    c.height = Math.round(r.h * scale);
+    const x = c.getContext('2d', { willReadFrequently: true });
+    x.imageSmoothingQuality = 'high';
+    x.drawImage(sourceCanvas, r.x, r.y, r.w, r.h, 0, 0, c.width, c.height);
+    const info = suppressBarcode(c);
+    return { canvas: c, bands: info.bands };
+  }
+
+  // ---- 결과 평탄화 ----------------------------------------------------------
+  // blocks 출력을 줄·단어·글자 배열로 편다. (words만 요청하면 줄 구조와 글자 좌표를 못 받는다)
+  // 줄 묶기는 Tesseract가 이미 기울기를 반영해 해 둔다. 직접 y좌표로 묶으면 기울어진
+  // 라벨에서 오른쪽 분류명이 왼쪽 둘째 줄과 섞인다(실측 확인).
+  function flatten(data) {
+    const lines = [], symbols = [];
+    for (const bl of data.blocks || []) {
+      for (const par of bl.paragraphs || []) {
+        for (const ln of par.lines || []) {
+          const words = [];
+          for (const wd of ln.words || []) {
+            const t = (wd.text || '').trim();
+            if (t && wd.bbox) {
+              words.push({ text: t, conf: wd.confidence, x0: wd.bbox.x0, x1: wd.bbox.x1 });
+            }
+            for (const sy of wd.symbols || []) {
+              const s = (sy.text || '').trim();
+              if (s && sy.bbox) {
+                symbols.push({ text: s, conf: sy.confidence, x0: sy.bbox.x0, x1: sy.bbox.x1,
+                               cy: (sy.bbox.y0 + sy.bbox.y1) / 2 });
+              }
+            }
+          }
+          if (words.length && ln.bbox) {
+            lines.push({ words, x0: ln.bbox.x0, y0: ln.bbox.y0, y1: ln.bbox.y1,
+                         h: ln.bbox.y1 - ln.bbox.y0 });
+          }
+        }
+      }
+    }
+    return { lines, symbols, text: data.text || '' };
+  }
+
+  // ---- 라벨 형식: "제품명/색상" ----------------------------------------------
+  /**
+   * 글자의 위치·크기·신뢰도로 필요한 줄만 골라낸다.
+   *  1. 신뢰도가 낮은 단어(포장지 잔글씨·바코드 잔상)를 버린다.
+   *  2. 한글 단어 높이의 중앙값을 기준 삼아 그보다 많이 작은 글자를 버린다.
+   *     최댓값을 쓰면 바코드 오인식 하나가 기준을 통째로 망가뜨린다(실측 확인).
+   *  3. 세로 위치가 가까운 단어끼리 한 줄로 묶는다.
+   *  4. 각 줄에서 맨 왼쪽 덩어리만 취한다. 글자 높이보다 넓은 간격에서 끊으므로
+   *     오른쪽의 @·분류명은 빠진다.
+   *  5. 첫 줄 왼쪽의 영문(HP 등)은 한국어 모델이 자주 놓친다. 영어 패스의 글자 단위
+   *     좌표에서 첫 한글보다 왼쪽에 있는 것만 가져와 앞에 붙인다.
+   */
+  function labelFormat(data) {
+    const kor = data.kor, eng = data.eng;
+    if (!kor.lines.length) return '';
+
+    // 1. 확실한 글자가 둘 이상인 줄만 남긴다. 포장지 잔글씨는 신뢰도가 바닥이라 여기서 걸린다.
+    let cands = kor.lines.filter((ln) => {
+      const sure = ln.words.filter((w) => w.conf >= 70);
+      return sure.reduce((n, w) => n + w.text.length, 0) >= 2 &&
+             sure.some((w) => HANGUL_ANY.test(w.text));
+    });
+    if (!cands.length) {
+      cands = kor.lines.filter((ln) => ln.words.some((w) => w.conf >= MIN_CONF));
+    }
+    if (!cands.length) return '';
+
+    // 2. 줄 높이의 중앙값보다 많이 작은 줄은 잔글씨로 보고 버린다.
+    const hs = cands.map((l) => l.h).sort((a, b) => a - b);
+    const refH = hs[hs.length >> 1];
+    const kept = cands.filter((l) => l.h >= refH * 0.6).sort((a, b) => a.y0 - b.y0);
+    if (!kept.length) return '';
+
+    // 한 줄을 문자열로: 왼쪽 덩어리만 취하고(글자 높이보다 넓은 간격에서 끊음),
+    // 첫 한글보다 왼쪽에 있는 영문(HP 등)을 영어 패스에서 가져와 앞에 붙인다.
+    const build = (ln) => {
+      const sorted = ln.words.slice().sort((a, b) => a.x0 - b.x0);
+      const group = [sorted[0]];
+      for (let i = 1; i < sorted.length; i++) {
+        if (sorted[i].x0 - group[group.length - 1].x1 > refH * 1.2) break;
+        group.push(sorted[i]);
+      }
+      // 확실하게 읽힌 첫 한글이 이 줄의 기준점. 그보다 왼쪽은 한국어 모델이 영문을
+      // 엉뚱한 한글로 바꿔 놓은 자리라, 영어 패스의 글자로 갈아 끼운다.
+      const anchor = group.find((w) => w.conf >= 80 && HANGUL_ANY.test(w.text)) ||
+                     group.find((w) => HANGUL_ANY.test(w.text)) || group[0];
+      const cutX = anchor.x0;
+      const prefix = eng.symbols
+        .filter((s) => s.cy > ln.y0 - ln.h * 0.3 && s.cy < ln.y1 + ln.h * 0.3 &&
+                       s.conf >= 60 && s.x1 <= cutX + refH * 0.15 && s.x0 >= cutX - refH * 6 &&
+                       /^[A-Za-z]$/.test(s.text))
+        .sort((a, b) => a.x0 - b.x0)
+        .map((s) => s.text).join('');
+      const leading = group.filter((w) => w.x1 <= cutX);
+      const rest = group.filter((w) => w.x1 > cutX);
+      // 영문을 찾았으면 그 자리의 한글 오인식은 버리고, 못 찾았으면 믿을 만한 것만 남긴다.
+      const head = prefix || leading.filter((w) => w.conf >= MIN_CONF).map((w) => w.text).join('');
+      return head + rest.map((w) => w.text).join('');
+    };
+
+    // 3. 제품명: 글자가 남는 첫 줄.
+    let nameIdx = -1, name = '';
+    for (let i = 0; i < kept.length; i++) {
+      const t = build(kept[i]).replace(NON_NAME, '');
+      if (t) { nameIdx = i; name = t; break; }
+    }
+    if (nameIdx < 0) return '';
+
+    // 4. 색상: 제품명 줄과 왼쪽 끝이 비슷한(같은 열) 다음 줄. 오른쪽 분류명은 여기서 빠진다.
+    const anchorX = kept[nameIdx].x0;
+    let color = '';
+    for (let i = nameIdx + 1; i < kept.length; i++) {
+      if (Math.abs(kept[i].x0 - anchorX) > refH * 2) continue;
+      const t = build(kept[i]).replace(NON_HANGUL, '');
+      if (t) { color = t; break; }
+    }
+    return color ? `${name}/${color}` : name;
+  }
 
   // 한글만: 한글이 아닌 구간은 공백으로, 줄 구조 유지, 한글 없는 줄은 버림
   function keepHangul(text) {
     return text.split(/\r?\n/)
-      .map((line) => line.replace(NON_HANGUL, ' ').replace(/\s+/g, ' ').trim())
-      .filter((line) => HANGUL.test(line))
+      .map((line) => line.replace(NON_HANGUL_ANY, ' ').replace(SPACES, ' ').trim())
+      .filter((line) => HANGUL_ANY.test(line))
       .join('\n');
   }
   function tidy(text) {
-    return text.split(/\r?\n/).map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n');
-  }
-
-  /**
-   * 라벨 형식: "제품명/색상".
-   * 단어 좌표를 써서 (1) 잔글씨를 버리고 (2) 줄을 묶은 뒤 (3) 각 줄의 왼쪽 덩어리만 취한다.
-   * 라벨 구조: 1줄 왼쪽=제품명, 2줄 왼쪽=색상, 오른쪽=분류·기호, 아래=가격·바코드.
-   *  - 제품명은 영문자+한글만 남긴다(숫자·기호 제거). 예: HP딘버일자3 → HP딘버일자
-   *  - 색상은 한글만 남긴다.
-   */
-  function toWords(data) {
-    return (data && data.words || [])
-      .filter((w) => w.text && w.text.trim() && w.bbox)
-      .map((w) => ({ text: w.text.trim(), x0: w.bbox.x0, x1: w.bbox.x1,
-                     h: w.bbox.y1 - w.bbox.y0, cy: (w.bbox.y0 + w.bbox.y1) / 2 }));
-  }
-
-  /**
-   * 한국어 모델은 영문(HP)을, 영어 모델은 한글을 깨뜨린다. 그래서 두 모델을 따로 돌린 뒤,
-   * 한국어 결과에서 한글이 없는 단어만 같은 자리의 영어 결과로 바꿔 넣는다.
-   * 자리가 거의 일치할 때만 바꾸므로, 영어 모델이 한글 위에 만든 넓은 쓰레기 단어는 끼어들지 못한다.
-   */
-  function mergeLatin(word, engWords, refH) {
-    if (HANGUL.test(word.text)) return word.text;
-    const tol = refH * 0.5;
-    const hits = engWords.filter((e) =>
-      Math.abs(e.cy - word.cy) < tol &&
-      Math.abs(e.x0 - word.x0) < tol && Math.abs(e.x1 - word.x1) < tol &&
-      /^[A-Za-z0-9&+\-.]+$/.test(e.text));
-    return hits.length ? hits.sort((a, b) => a.x0 - b.x0).map((e) => e.text).join('') : word.text;
-  }
-
-  function labelFormat(data) {
-    const words = toWords(data.kor);
-    const engWords = toWords(data.eng);
-    if (!words.length) return '';
-
-    // 기준 글자 높이: 한글이 들어간 단어 중 가장 큰 것. 그 절반 미만은 포장지 잔글씨로 보고 버린다.
-    const hangulWords = words.filter((w) => HANGUL.test(w.text));
-    const refH = Math.max(...(hangulWords.length ? hangulWords : words).map((w) => w.h));
-    const big = words.filter((w) => w.h >= refH * 0.45).sort((a, b) => a.cy - b.cy);
-
-    // 세로 중심이 가까운 단어끼리 한 줄로 묶는다.
-    const rows = [];
-    for (const w of big) {
-      const r = rows[rows.length - 1];
-      if (r && Math.abs(w.cy - r.cy) < refH * 0.5) {
-        r.words.push(w);
-        r.cy = r.words.reduce((s, x) => s + x.cy, 0) / r.words.length;
-      } else {
-        rows.push({ cy: w.cy, words: [w] });
-      }
-    }
-
-    // 각 줄에서 맨 왼쪽 단어부터, 글자 높이보다 큰 간격이 나오기 전까지를 한 덩어리로 본다.
-    const leftGroups = rows.map((r) => {
-      r.words.sort((a, b) => a.x0 - b.x0);
-      const g = [r.words[0]];
-      for (let i = 1; i < r.words.length; i++) {
-        const gap = r.words[i].x0 - g[g.length - 1].x1;
-        if (gap > refH * 1.2) break;
-        g.push(r.words[i]);
-      }
-      return g.map((w) => mergeLatin(w, engWords, refH)).join('');
-    });
-
-    // 글자(영문·한글)가 없는 줄(가격·바코드·기호)은 버리고 위에서 두 줄을 쓴다.
-    const textRows = leftGroups.map((t) => t.replace(NON_LETTER, '')).filter(Boolean);
-    const name = textRows[0] || '';
-    const color = (textRows[1] || '').replace(NON_HANGUL, '');
-    return color ? `${name}/${color}` : name;
+    return text.split(/\r?\n/).map((l) => l.replace(SPACES, ' ').trim()).filter(Boolean).join('\n');
   }
 
   function applyFilter() {
     const m = mode();
-    const raw = lastData ? (lastData.kor.text || '') : '';
     let out = '';
-    if (lastData) out = m === 'label' ? labelFormat(lastData) : m === 'hangul' ? keepHangul(raw) : tidy(raw);
+    if (lastData) {
+      const raw = lastData.kor.text || '';
+      out = m === 'label' ? labelFormat(lastData) : m === 'hangul' ? keepHangul(raw) : tidy(raw);
+    }
     els.result.value = out;
     els.result.classList.toggle('plain', m !== 'label');
     els.result.rows = m === 'label' ? 2 : 8;
@@ -262,15 +415,14 @@
     const scale = Math.min(1, MAX_SIDE / Math.max(w, h));
     const canvas = document.createElement('canvas');
     canvas.width = Math.round(w * scale); canvas.height = Math.round(h * scale);
-    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const cx = canvas.getContext('2d', { willReadFrequently: true });
+    cx.imageSmoothingQuality = 'high';
+    cx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     if (bitmap.close) bitmap.close();
     return canvas;
   }
 
   // ---- OCR ---------------------------------------------------------------
-  let workerLang = '';     // 워커가 지금 초기화된 언어. 바꿀 때만 reinitialize 한다.
-  let passLabel = '';      // 진행 표시용
-
   async function getWorker() {
     if (worker) return worker;
     setProgress('인식 엔진 준비 중', 0);
@@ -292,56 +444,133 @@
   async function recognizeWith(lang, canvas, label) {
     const w = await getWorker();
     if (workerLang !== lang) { await w.reinitialize(lang); workerLang = lang; }
+    // PSM 11(희소 텍스트): 라벨처럼 글자가 사진 여기저기 흩어져 있을 때 기본 모드보다 훨씬 잘 찾는다.
+    await w.setParameters({ tessedit_pageseg_mode: '11', preserve_interword_spaces: '1' });
     passLabel = label;
-    const { data } = await w.recognize(canvas);
-    return data;
+    const { data } = await w.recognize(canvas, {}, { blocks: true, text: true });
+    return flatten(data);
   }
 
-  async function recognize(canvas) {
-    if (busy) return;
+  async function recognize() {
+    if (busy || !sourceCanvas) return;
     busy = true;
     els.rerun.disabled = true;
     try {
       const t0 = performance.now();
+      const { canvas } = buildOcrCanvas();
       const kor = await recognizeWith('kor', canvas, '한글 읽는 중 (1/2)');
       const eng = await recognizeWith('eng', canvas, '영문 읽는 중 (2/2)');
       lastData = { kor, eng };
       applyFilter();
       const sec = ((performance.now() - t0) / 1000).toFixed(1);
       if (els.result.value) setStatus(`인식 완료 · ${sec}초`, 'ok');
-      else setStatus('글자를 찾지 못했습니다. 라벨을 더 크게, 정면으로 찍어 보세요.', 'err');
+      else setStatus('글자를 찾지 못했습니다. 글자 부분만 끌어 선택한 뒤 다시 인식해 보세요.', 'err');
     } catch (e) {
       console.error(e);
       setStatus('인식에 실패했습니다: ' + (e && e.message ? e.message : e), 'err');
     } finally {
       hideProgress();
       busy = false;
-      els.rerun.disabled = !lastCanvas;
+      els.rerun.disabled = !sourceCanvas;
     }
   }
 
   async function handleFile(file) {
     if (!file) return;
-    lastData = null; applyFilter();
+    lastData = null; cropRect = null; updateSelBox();
+    applyFilter();
     setStatus('사진 불러오는 중…');
     try {
-      lastCanvas = await loadToCanvas(file);
+      sourceCanvas = await loadToCanvas(file);
     } catch (e) {
       setStatus('사진을 열 수 없습니다.', 'err');
       return;
     }
-    els.previewImg.src = lastCanvas.toDataURL('image/jpeg', 0.8);
+    els.previewImg.src = sourceCanvas.toDataURL('image/jpeg', 0.85);
     els.preview.style.display = 'block';
-    await recognize(lastCanvas);
+    await recognize();
   }
+
+  // ---- 영역 선택 (드래그) ----------------------------------------------------
+  let drag = null;
+
+  function imgBox() {
+    // object-fit: contain 이라 이미지가 실제로 그려진 사각형을 따로 계산한다.
+    const r = els.previewImg.getBoundingClientRect();
+    const nw = sourceCanvas ? sourceCanvas.width : els.previewImg.naturalWidth;
+    const nh = sourceCanvas ? sourceCanvas.height : els.previewImg.naturalHeight;
+    if (!nw || !nh) return null;
+    const scale = Math.min(r.width / nw, r.height / nh);
+    const w = nw * scale, h = nh * scale;
+    return { left: r.left + (r.width - w) / 2, top: r.top + (r.height - h) / 2, w, h, scale };
+  }
+
+  function updateSelBox() {
+    if (!cropRect || !sourceCanvas) {
+      els.sel.style.display = 'none';
+      els.cropClear.hidden = true;
+      els.cropHint.textContent = '글자 부분을 손가락으로 끌어 선택하면 더 정확합니다';
+      return;
+    }
+    const b = imgBox();
+    const stage = els.stage.getBoundingClientRect();
+    if (!b) return;
+    els.sel.style.display = 'block';
+    els.sel.style.left = (b.left - stage.left + cropRect.x * b.scale) + 'px';
+    els.sel.style.top = (b.top - stage.top + cropRect.y * b.scale) + 'px';
+    els.sel.style.width = (cropRect.w * b.scale) + 'px';
+    els.sel.style.height = (cropRect.h * b.scale) + 'px';
+    els.cropClear.hidden = false;
+    els.cropHint.textContent = '선택 영역만 인식합니다';
+  }
+
+  function toSource(clientX, clientY) {
+    const b = imgBox();
+    if (!b) return null;
+    return {
+      x: Math.min(Math.max((clientX - b.left) / b.scale, 0), sourceCanvas.width),
+      y: Math.min(Math.max((clientY - b.top) / b.scale, 0), sourceCanvas.height),
+    };
+  }
+
+  els.stage.addEventListener('pointerdown', (e) => {
+    if (!sourceCanvas) return;
+    const p = toSource(e.clientX, e.clientY);
+    if (!p) return;
+    drag = { sx: p.x, sy: p.y };
+    els.stage.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+
+  els.stage.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const p = toSource(e.clientX, e.clientY);
+    if (!p) return;
+    cropRect = {
+      x: Math.min(drag.sx, p.x), y: Math.min(drag.sy, p.y),
+      w: Math.abs(p.x - drag.sx), h: Math.abs(p.y - drag.sy),
+    };
+    updateSelBox();
+  });
+
+  els.stage.addEventListener('pointerup', () => {
+    if (!drag) return;
+    drag = null;
+    // 너무 작은 선택(탭)은 취소로 본다.
+    if (cropRect && (cropRect.w < sourceCanvas.width * 0.05 || cropRect.h < sourceCanvas.height * 0.02)) {
+      cropRect = null;
+    }
+    updateSelBox();
+    if (cropRect) recognize();
+  });
+
+  els.cropClear.addEventListener('click', () => { cropRect = null; updateSelBox(); recognize(); });
+  window.addEventListener('resize', updateSelBox);
 
   // ---- 복사 / 공유 --------------------------------------------------------
   // http(비보안 컨텍스트)에서는 navigator.clipboard가 없으므로 선택+execCommand로 폴백한다.
   async function copyText(text) {
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(text);
-      return;
-    }
+    if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return; }
     const ta = els.result;
     ta.focus();
     ta.setSelectionRange(0, ta.value.length);   // iOS Safari는 select()만으로는 선택이 안 된다
@@ -359,7 +588,7 @@
     try { localStorage.setItem('mode', mode()); } catch {}
     applyFilter();
   });
-  els.rerun.addEventListener('click', () => lastCanvas && recognize(lastCanvas));
+  els.rerun.addEventListener('click', () => recognize());
   els.copy.addEventListener('click', async () => {
     const text = els.result.value;
     if (!text) return;
@@ -382,12 +611,18 @@
   applyFilter();
 
   // 오프라인 캐시 등록. https(또는 localhost)에서만 동작하고, http LAN 접속에서는 조용히 건너뛴다.
-  if ('serviceWorker' in navigator && (window.isSecureContext)) {
+  if ('serviceWorker' in navigator && window.isSecureContext) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
 
-  // 테스트·디버깅용: 콘솔에서 파일을 넣어 돌릴 수 있게 노출
-  window.hangulOcr = { handleFile, keepHangul, labelFormat, get lastData() { return lastData; } };
+  // 테스트·디버깅용
+  window.hangulOcr = {
+    handleFile, labelFormat, keepHangul, recognize,
+    setCrop(r) { cropRect = r; updateSelBox(); },
+    get lastData() { return lastData; },
+    get source() { return sourceCanvas; },
+    buildOcrCanvas,
+  };
 })();
 </script>
 </body>
