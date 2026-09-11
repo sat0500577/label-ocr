@@ -11,6 +11,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon.png">
 <link rel="icon" href="icon.png">
+<link rel="stylesheet" href="numbering.css">
 <title>라벨 OCR</title>
 <style>
   /* 라이트 기본값 + 다크 오버라이드. 하드코딩 색 대신 변수만 쓴다. */
@@ -91,6 +92,35 @@
 <main>
   <h1>라벨 OCR <small>제품명/색상 추출</small></h1>
 
+  <section class="card numbering" aria-labelledby="numberingTitle">
+    <div class="numbering-heading"><h2 id="numberingTitle">엑셀 넘버링</h2><button id="excelOpen" class="btn small" type="button">엑셀 불러오기</button></div>
+    <input id="excelFile" type="file" accept=".xlsx">
+    <p class="hint" id="excelIntro">엑셀을 불러온 뒤 넣을 칸을 눌러 주세요. 사진에서 읽은 제품명/색상을 선택한 칸에 넣습니다.</p>
+    <div id="excelWorkspace" hidden>
+      <p id="excelFilename" class="hint"></p>
+      <label class="field-label" for="excelSheet">작업할 시트</label>
+      <select id="excelSheet"></select>
+      <p class="hint">표를 좌우로 밀어 번호를 찾고, 입력할 칸을 누르세요.</p>
+      <div id="excelGrid" class="numbering-grid" tabindex="0" aria-label="넘버링 표"></div>
+      <div class="numbering-selection">
+        <strong id="excelTarget" aria-live="polite">입력할 칸을 선택하세요</strong>
+        <p id="excelPrevious" class="hint"></p>
+        <label class="field-label" for="excelText">이 칸에 넣을 제품명/색상</label>
+        <textarea id="excelText" rows="2" placeholder="사진을 찍거나 직접 입력하세요" spellcheck="false"></textarea>
+        <div class="btns">
+          <button id="excelCamera" class="btn" type="button" disabled>📷 이 칸 촬영</button>
+          <button id="excelApply" class="btn primary" type="button" disabled>선택한 칸에 넣기</button>
+        </div>
+      </div>
+      <div class="meta"><span id="excelChanges" class="hint">변경한 칸 0개</span><div class="actions">
+        <button id="excelUndo" class="btn small" type="button" disabled>되돌리기</button>
+        <button id="excelDownload" class="btn small primary" type="button">엑셀 다운로드</button>
+      </div></div>
+      <p class="hint">작업을 마치면 엑셀을 다운로드하세요. 원본 파일은 그대로 유지됩니다.</p>
+    </div>
+    <p id="excelStatus" class="status" role="status" aria-live="polite"></p>
+  </section>
+
   <section class="card">
     <div class="btns">
       <button class="btn primary" id="cameraButton" type="button">📷 사진 찍기</button>
@@ -155,6 +185,8 @@
 <!-- Tesseract.js: 브라우저에서 동작하는 OCR 엔진. 엔진·모델 파일은 vendor/ 에 같이 둔다(외부 인터넷 불필요). -->
 <script src="vendor/tesseract.min.js"></script>
 <script src="ocr-image.js"></script>
+<script src="vendor/jszip.min.js"></script>
+<script src="numbering.js"></script>
 <script>
 (() => {
   const $ = (id) => document.getElementById(id);
@@ -204,6 +236,7 @@
     for (const el of [els.camera, els.gallery, els.cameraButton, els.galleryButton, els.cropClear]) el.disabled = locked;
     els.rerun.disabled = locked || !sourceCanvas;
     els.result.readOnly = locked;
+    document.dispatchEvent(new Event('ocr-result-change'));
     els.stage.setAttribute('aria-busy', String(locked));
     for (const input of els.modes.querySelectorAll('input')) input.disabled = locked;
   }
@@ -584,6 +617,7 @@
     els.copy.disabled = empty;
     els.share.disabled = empty;
     els.save.disabled = empty;
+    document.dispatchEvent(new Event('ocr-result-change'));
   }
 
   // ---- 이미지 로드 (EXIF 회전 반영 + 축소) --------------------------------
