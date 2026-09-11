@@ -1,9 +1,9 @@
 // GitHub Pages 프로젝트는 같은 origin을 공유한다. 이 앱의 캐시만 관리한다.
 const PREFIX = `label-ocr:${self.registration.scope}:`;
-const CACHE = PREFIX + 'shell-v10';
+const CACHE = PREFIX + 'shell-v11';
 const ASSETS = PREFIX + 'vendor-v1'; // 화면 업데이트 뒤에도 OCR 모델을 유지한다.
-const PRECACHE = ['./', './index.html', './shortcut.html', './ocr-image.js', './manifest.json', './icon.png'];
-const SCRIPTS = ['./vendor/tesseract.min.js', './vendor/worker.min.js'];
+const PRECACHE = ['./', './index.html', './shortcut.html', './ocr-image.js', './numbering.js', './numbering.css', './manifest.json', './icon.png'];
+const SCRIPTS = ['./vendor/tesseract.min.js', './vendor/worker.min.js', './vendor/jszip.min.js'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {

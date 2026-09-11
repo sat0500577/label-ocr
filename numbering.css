@@ -1,0 +1,22 @@
+.numbering { min-width: 0; }
+.numbering-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.numbering h2 { font-size: 17px; margin: 0; }
+.numbering select, .numbering textarea { width: 100%; font: inherit; color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-bottom: 10px; }
+.numbering #excelFilename { overflow-wrap: anywhere; margin-bottom: 12px; }
+.numbering-grid { overflow: auto; max-height: 330px; border: 1px solid var(--line); border-radius: 10px; margin: 8px 0 12px; overscroll-behavior: contain; }
+.numbering-grid table { border-spacing: 0; table-layout: fixed; font-size: 13px; }
+.numbering-grid th, .numbering-grid td { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 0; background: var(--card); }
+.numbering-grid thead th { position: sticky; top: 0; z-index: 2; background: var(--bg); height: 38px; min-width: 120px; color: var(--accent); }
+.numbering-grid th.row-number { position: sticky; left: 0; z-index: 1; min-width: 48px; width: 48px; background: var(--bg); padding: 4px; font-size: 11px; color: var(--muted); }
+.numbering-grid thead .row-number { z-index: 3; }
+.numbering-grid .spacer { min-width: 16px; width: 16px; background: var(--bg); }
+.numbering-cell { display: block; width: 120px; min-height: 66px; border: 2px solid transparent; padding: 8px 6px; background: transparent; color: var(--fg); font: inherit; cursor: pointer; overflow-wrap: anywhere; }
+.numbering-cell.changed { background: color-mix(in srgb, var(--ok) 9%, var(--card)); }
+.numbering-cell[aria-pressed=true] { background: color-mix(in srgb, var(--accent) 13%, var(--card)); border-color: var(--accent); color: var(--accent); font-weight: 700; }
+.numbering-cell:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; }
+.numbering-selection { border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 4%, var(--card)); border-radius: 10px; padding: 12px; }
+.numbering-selection > strong { display: block; color: var(--accent); font-size: 16px; }
+.numbering-selection .hint { overflow-wrap: anywhere; margin: 6px 0 10px; }
+.numbering-selection .field-label { margin-top: 10px; }
+.numbering-selection textarea { font-size: 18px; font-weight: 600; resize: vertical; }
+.numbering .status:empty { display: none; }
