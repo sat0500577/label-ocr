@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f6feb">
+<link rel="icon" href="icon.png">
+<title>아이폰 단축어로 만들기 · 라벨 OCR</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #ffffff; --fg: #1b1f24; --muted: #6b7280; --line: #e3e6ea;
+    --accent: #1f6feb; --accent-fg: #ffffff; --ok: #1a7f37; --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f1216; --card: #181c22; --fg: #e6e8eb; --muted: #9aa3ad;
+            --line: #2a3038; --accent: #4c8dff; --ok: #3fb950; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.65 -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif; }
+  body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  main { max-width: 640px; margin: 0 auto; padding: 16px 16px 48px; }
+  h1 { font-size: 22px; margin: 8px 0 4px; }
+  h2 { font-size: 17px; margin: 28px 0 8px; }
+  p { margin: 8px 0; }
+  .lead { color: var(--muted); margin-bottom: 20px; }
+  a { color: var(--accent); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 14px 16px; margin: 14px 0; }
+  ol { padding-left: 22px; margin: 8px 0; }
+  ol li { margin: 10px 0; }
+  ul { padding-left: 20px; }
+  code { background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+    padding: 2px 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px;
+    word-break: break-all; }
+  .copy { display: block; width: 100%; margin-top: 10px; min-height: 46px; border-radius: 10px;
+    border: 1px solid var(--accent); background: var(--accent); color: var(--accent-fg);
+    font: inherit; font-weight: 600; cursor: pointer; }
+  .copy.done { background: var(--ok); border-color: var(--ok); }
+  .note { color: var(--muted); font-size: 14px; }
+  .back { display: inline-block; margin-bottom: 8px; font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <a class="back" href="./">← 라벨 OCR로 돌아가기</a>
+  <h1>아이폰 단축어로 만들기</h1>
+  <p class="lead">아이폰에 들어 있는 문자 인식(Live Text)은 한국어를 이 웹앱보다 훨씬 정확하게 읽습니다.
+    설치할 것도, 인터넷도 필요 없습니다. 아래를 따라 5분이면 만듭니다.</p>
+
+  <h2>만드는 순서</h2>
+  <div class="card">
+    <ol>
+      <li><b>단축어</b> 앱을 열고 오른쪽 위 <b>+</b>를 누릅니다.</li>
+      <li><b>동작 추가</b>에서 <b>사진 찍기</b>를 검색해 추가합니다.</li>
+      <li><b>이미지에서 텍스트 추출</b>을 검색해 추가합니다.
+        <div class="note">이 동작이 아이폰 내장 문자 인식입니다.</div></li>
+      <li><b>텍스트 일치</b>를 검색해 추가합니다. 입력이 앞 단계의 <b>텍스트</b>인지 확인하세요.</li>
+      <li>일치 항목에 아래 식을 붙여 넣습니다.
+        <p><code id="re">[A-Za-z]*[가-힣]{2,}</code></p>
+        <button class="copy" id="copyRe">인식 식 복사</button>
+        <div class="note">한글이 두 자 이상 이어지는 덩어리만 골라냅니다. 앞에 붙은 영문(HP, R)은 같이 가져오고
+          숫자·기호는 버립니다.</div></li>
+      <li><b>목록에서 항목 가져오기</b>를 추가하고, <b>항목 가져오기</b>를 <b>첫 번째 항목</b>으로 둡니다.
+        이것이 <b>제품명</b>입니다.</li>
+      <li><b>변수 설정</b>을 추가해 이름을 <code>제품명</code>으로 합니다.</li>
+      <li><b>목록에서 항목 가져오기</b>를 하나 더 추가합니다. 입력을 <b>일치 항목</b>으로 바꾸고,
+        <b>인덱스의 항목</b> · <b>2</b>로 설정합니다. 이것이 <b>색상</b>입니다.</li>
+      <li><b>변수 설정</b>을 추가해 이름을 <code>색상</code>으로 합니다.</li>
+      <li><b>텍스트</b> 동작을 추가하고 <code>제품명</code> 변수, <code>/</code>, <code>색상</code> 변수를
+        차례로 넣습니다.</li>
+      <li><b>클립보드에 복사</b>와 <b>결과 보기</b>를 추가합니다.</li>
+      <li>위쪽 이름을 <b>라벨 읽기</b>로 바꾸고 저장합니다.</li>
+    </ol>
+  </div>
+
+  <h2>홈 화면에 두기</h2>
+  <div class="card">
+    <p>단축어 목록에서 <b>라벨 읽기</b>를 길게 눌러 <b>공유</b> → <b>홈 화면에 추가</b>를 고릅니다.
+      아이콘을 누르면 바로 카메라가 열립니다.</p>
+  </div>
+
+  <h2>결과가 이상할 때</h2>
+  <div class="card">
+    <ul>
+      <li>라벨을 화면에 크게, 정면으로 담아 찍으세요. 아이폰 문자 인식도 흐린 글자는 틀립니다.</li>
+      <li><b>포장지의 작은 글씨가 먼저 잡히면</b> 제품명 자리에 "모델명"이나 "제조사명" 같은
+        엉뚱한 말이 들어옵니다. 라벨만 화면에 들어오게 가까이서 찍으면 없어집니다.
+        자주 그러면 아래 <b>고르는 방식</b>으로 바꾸세요.</li>
+      <li>제품명 뒤 숫자(<code>HP딘버일자3</code>의 <code>3</code>)는 위 식이 자동으로 버립니다.</li>
+      <li>결과 창에서 글자를 직접 고칠 수 있습니다.</li>
+    </ul>
+  </div>
+
+  <h2>항상 맞게: 고르는 방식</h2>
+  <div class="card">
+    <p>자동으로 첫 두 개를 집는 대신, 인식된 낱말을 보여 주고 직접 두 번 누르는 방식입니다.
+      두 번 더 누르는 대신 틀릴 일이 없습니다.</p>
+    <p>위 순서에서 <b>6번부터 9번까지</b>를 지우고 아래로 바꿉니다.</p>
+    <ol>
+      <li><b>목록에서 선택</b>을 추가하고 입력을 <b>일치 항목</b>으로 둡니다.
+        프롬프트에 <code>제품명 고르기</code>라고 적습니다.</li>
+      <li><b>변수 설정</b>으로 이름을 <code>제품명</code>으로 합니다.</li>
+      <li><b>목록에서 선택</b>을 하나 더 추가하고 입력을 다시 <b>일치 항목</b>으로 둡니다.
+        프롬프트는 <code>색상 고르기</code>.</li>
+      <li><b>변수 설정</b>으로 이름을 <code>색상</code>으로 합니다.</li>
+    </ol>
+    <p class="note">나머지(텍스트 합치기, 클립보드 복사, 결과 보기)는 그대로 둡니다.</p>
+  </div>
+
+  <h2>이 웹앱은 언제 쓰나</h2>
+  <div class="card">
+    <p>단축어는 아이폰에서만 됩니다. 안드로이드나 PC에서, 또는 인터넷 없이 쓸 때는
+      <a href="./">이 웹앱</a>을 그대로 쓰면 됩니다.</p>
+  </div>
+</main>
+<script>
+  document.getElementById('copyRe').addEventListener('click', async (e) => {
+    const text = document.getElementById('re').textContent;
+    try {
+      if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(text);
+      else throw new Error('no clipboard');
+      e.target.textContent = '복사했습니다';
+      e.target.classList.add('done');
+    } catch {
+      e.target.textContent = '복사 실패 · 위 식을 길게 눌러 복사하세요';
+    }
+  });
+</script>
+</body>
+</html>
