@@ -1,0 +1,23 @@
+{
+  "name": "label-ocr",
+  "version": "1.0.0",
+  "description": "안드로이드·아이폰에서 사용하는 사진 텍스트 및 상품 라벨 추출 웹앱",
+  "scripts": {
+    "dev": "node scripts/serve.cjs",
+    "test": "playwright test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sat0500577/label-ocr.git"
+  },
+  "keywords": [],
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/sat0500577/label-ocr/issues"
+  },
+  "homepage": "https://github.com/sat0500577/label-ocr#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.63.0"
+  },
+  "private": true
+}
