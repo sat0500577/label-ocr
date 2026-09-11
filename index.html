@@ -43,6 +43,7 @@
   .btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
   .btn:active { filter: brightness(.92); }
   .btn:disabled { opacity: .5; pointer-events: none; }
+  .btn:focus-visible, summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
   .btn.small { min-height: 40px; padding: 0 14px; font-size: 14px; font-weight: 500; }
   input[type=file] { display: none; }
 
@@ -72,14 +73,18 @@
   .big { width: 100%; min-height: 64px; padding: 12px; border-radius: 10px; border: 1px solid var(--line);
     background: var(--bg); color: var(--fg); font: inherit; font-size: 22px; font-weight: 700; line-height: 1.5; resize: vertical; }
   .big.plain { font-size: 16px; font-weight: 400; min-height: 160px; line-height: 1.7; }
-  .meta { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 8px; }
+  .meta { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-top: 8px; }
   .meta .count { color: var(--muted); font-size: 13px; }
-  .meta .actions { display: flex; gap: 8px; }
+  .meta .actions { display: flex; flex-wrap: wrap; gap: 8px; }
   .status { min-height: 20px; margin-top: 8px; font-size: 14px; color: var(--muted); }
   .status.ok { color: var(--ok); }
   .status.err { color: var(--err); }
   .hint { color: var(--muted); font-size: 13px; line-height: 1.6; margin: 0; }
   .hint a { color: var(--accent); }
+  .install summary { cursor: pointer; font-size: 14px; font-weight: 600; }
+  .install p { margin: 10px 0 0; }
+  .field-label { display: block; margin-bottom: 8px; font-size: 14px; font-weight: 600; }
+  @media (max-width: 360px) { main { padding: 12px; } .card { padding: 12px; } .btn.small { padding: 0 10px; } }
 </style>
 </head>
 <body>
@@ -88,8 +93,8 @@
 
   <section class="card">
     <div class="btns">
-      <label class="btn primary" for="camera">📷 사진 찍기</label>
-      <label class="btn" for="gallery">🖼️ 앨범에서 선택</label>
+      <button class="btn primary" id="cameraButton" type="button">📷 사진 찍기</button>
+      <button class="btn" id="galleryButton" type="button">🖼️ 앨범에서 선택</button>
       <!-- capture 속성: 모바일에서는 카메라를 바로 연다. PC에서는 파일 선택창. -->
       <input id="camera" type="file" accept="image/*" capture="environment">
       <input id="gallery" type="file" accept="image/*">
@@ -107,45 +112,58 @@
   </section>
 
   <section class="card">
-    <div class="modes" id="modes">
+    <div class="modes" id="modes" role="group" aria-label="추출할 텍스트 형식">
       <label><input type="radio" name="mode" value="label" checked><span>제품명/색상</span></label>
       <label><input type="radio" name="mode" value="hangul"><span>한글만</span></label>
       <label><input type="radio" name="mode" value="all"><span>전체</span></label>
     </div>
     <div class="progress" id="progress"><span id="progressLabel">준비 중</span><div class="bar"><i id="progressBar"></i></div></div>
     <div class="row">
-      <div class="status" id="status" style="margin:0">사진을 찍거나 선택하면 자동으로 읽습니다.</div>
+      <div class="status" id="status" role="status" aria-live="polite" style="margin:0">사진을 찍거나 선택하면 자동으로 읽습니다.</div>
       <button class="btn small" id="rerun" disabled>다시 인식</button>
     </div>
   </section>
 
   <section class="card">
+    <label class="field-label" for="result">추출 결과 · 직접 수정할 수 있어요</label>
     <textarea class="big" id="result" rows="2" placeholder="예: HP딘버일자/그레이" spellcheck="false"></textarea>
     <div class="meta">
       <span class="count" id="count"></span>
       <span class="actions">
         <button class="btn small" id="share" disabled hidden>공유</button>
+        <button class="btn small" id="save" disabled>파일 저장</button>
         <button class="btn small primary" id="copy" disabled>복사</button>
       </span>
     </div>
   </section>
 
   <p class="hint">라벨이 화면에 크게, 똑바로 나오게 찍을수록 정확합니다.
-    결과가 이상하면 미리보기에서 제품명·색상 부분만 끌어 선택한 뒤 <b>다시 인식</b>을 누르세요.<br>
-    아이폰이라면 <a href="shortcut.html">내장 문자 인식을 쓰는 단축어</a>가 더 정확합니다.</p>
+    결과가 이상하면 미리보기에서 제품명·색상 부분만 끌어 선택한 뒤 <b>다시 인식</b>을 누르세요.</p>
+  <details class="card install">
+    <summary>아이폰·안드로이드에서 앱처럼 사용하기</summary>
+    <p class="hint"><b>아이폰:</b> Safari에서 이 페이지를 열고 공유 메뉴 → 홈 화면에 추가를 선택하세요.</p>
+    <p class="hint"><b>안드로이드:</b> Chrome에서 이 페이지를 열고 메뉴 → 홈 화면에 추가 또는 앱 설치를 선택하세요.</p>
+    <p class="hint">처음에는 인터넷에 연결해 인식 엔진 준비가 끝날 때까지 기다려 주세요.
+      사진은 서버로 보내지 않고 기기 안에서 처리합니다. 결과는 복사하거나 텍스트 파일로 저장할 수 있어요.</p>
+    <p class="hint">카카오톡 같은 앱 안에서 카메라가 열리지 않으면 Safari 또는 Chrome에서 다시 열어 주세요.</p>
+    <p class="hint"><b>아이폰에서 더 정확하게:</b> 내장 문자 인식을 쓰는
+      <a href="shortcut.html">단축어로 만드는 방법</a>도 있습니다.</p>
+  </details>
 </main>
 
 <!-- Tesseract.js: 브라우저에서 동작하는 OCR 엔진. 엔진·모델 파일은 vendor/ 에 같이 둔다(외부 인터넷 불필요). -->
 <script src="vendor/tesseract.min.js"></script>
+<script src="ocr-image.js"></script>
 <script>
 (() => {
   const $ = (id) => document.getElementById(id);
   const els = {
-    camera: $('camera'), gallery: $('gallery'), preview: $('preview'), stage: $('stage'),
+    camera: $('camera'), gallery: $('gallery'), cameraButton: $('cameraButton'), galleryButton: $('galleryButton'),
+    preview: $('preview'), stage: $('stage'),
     previewImg: $('previewImg'), sel: $('sel'), cropHint: $('cropHint'), cropClear: $('cropClear'),
     modes: $('modes'), rerun: $('rerun'), progress: $('progress'),
     progressLabel: $('progressLabel'), progressBar: $('progressBar'), status: $('status'),
-    result: $('result'), count: $('count'), copy: $('copy'), share: $('share'),
+    result: $('result'), count: $('count'), copy: $('copy'), share: $('share'), save: $('save'),
   };
 
   const MAX_SIDE = 2400;       // 원본 사진을 이 크기까지 줄여 보관한다.
@@ -155,19 +173,20 @@
   // 이 값을 낮추면 오히려 느려진다. 글자가 작아져 '확대해서 다시 읽기'가 걸리기 때문이다.
   const OCR_MAX_W = 3200;      // 인식 캔버스 최대 폭
   const OCR_MAX_SIDE = 3600;   // 인식 캔버스 최대 높이
-  const ENG_TEXT_H = 60;       // 영문 패스는 글자 높이가 이 정도가 되도록 줄여 읽는다.
   const MIN_TEXT_H = 42;       // 글자 줄 높이가 이보다 작으면 확대해 한 번 더 읽는다.
   const MIN_CONF = 55;         // 이보다 낮은 신뢰도의 단어는 쓰레기로 보고 버린다.
 
   const EMPTY_PASS = { lines: [], symbols: [], text: '' };
 
   let worker = null;           // Tesseract 워커. 한 번 만들어 언어만 바꿔가며 재사용한다.
+  let workerPromise = null;    // 첫 준비 중 촬영해도 같은 초기화 작업을 기다린다.
   let workerLang = '';
   let passLabel = '';
   let sourceCanvas = null;     // 원본(축소된) 사진
   let cropRect = null;         // 사용자가 고른 영역 {x, y, w, h} (sourceCanvas 좌표계)
   let lastData = null;         // 마지막 인식 결과. 형식만 바꿀 때 재인식하지 않기 위해 보관.
   let busy = false;
+  let loading = false;
 
   const mode = () => (document.querySelector('input[name=mode]:checked') || {}).value || 'label';
 
@@ -179,6 +198,14 @@
     els.progressBar.style.width = Math.round((ratio || 0) * 100) + '%';
   }
   function hideProgress() { els.progress.style.display = 'none'; }
+  function updateBusy() {
+    const locked = busy || loading;
+    for (const el of [els.camera, els.gallery, els.cameraButton, els.galleryButton, els.cropClear]) el.disabled = locked;
+    els.rerun.disabled = locked || !sourceCanvas;
+    els.result.readOnly = locked;
+    els.stage.setAttribute('aria-busy', String(locked));
+    for (const input of els.modes.querySelectorAll('input')) input.disabled = locked;
+  }
 
   // ---- 문자 분류 ------------------------------------------------------------
   const HANGUL_ANY = /[가-힣ㄱ-ㆎ]/;             // 완성형 + 자모
@@ -284,6 +311,11 @@
    * 통째로 못 읽는다. 이 여백만 빼면 같은 사진이 정상 인식된다(실측 확인).
    */
   function trimUniformBorder(rect) {
+    // 터치 좌표는 소수점이지만 ImageData 행 너비는 정수다.
+    const leftX = Math.max(0, Math.floor(rect.x)), topY = Math.max(0, Math.floor(rect.y));
+    rect = { x: leftX, y: topY,
+      w: Math.max(1, Math.min(sourceCanvas.width, Math.ceil(rect.x + rect.w)) - leftX),
+      h: Math.max(1, Math.min(sourceCanvas.height, Math.ceil(rect.y + rect.h)) - topY) };
     const ctx = sourceCanvas.getContext('2d', { willReadFrequently: true });
     const p = ctx.getImageData(rect.x, rect.y, rect.w, rect.h).data;
     const W = rect.w, H = rect.h;
@@ -308,6 +340,10 @@
     while (left < maxX && flatCol(left)) left++;
     while (right > W - 1 - maxX && flatCol(right)) right--;
     if (bottom - top < H * 0.2 || right - left < W * 0.2) return rect;
+    // 글자에 딱 붙여 자르면 가장자리 획을 놓친다. 원래 사진의 작은 여백을 남긴다.
+    const margin = 12;
+    left = Math.max(0, left - margin); top = Math.max(0, top - margin);
+    right = Math.min(W - 1, right + margin); bottom = Math.min(H - 1, bottom + margin);
     return { x: rect.x + left, y: rect.y + top, w: right - left + 1, h: bottom - top + 1 };
   }
 
@@ -329,7 +365,7 @@
     if (rot === 90) { x.translate(c.width, 0); x.rotate(Math.PI / 2); }
     else if (rot === 270) { x.translate(0, c.height); x.rotate(-Math.PI / 2); }
     else if (rot === 180) { x.translate(c.width, c.height); x.rotate(Math.PI); }
-    x.drawImage(sourceCanvas, r.x, r.y, r.w, r.h, 0, 0, w, h);
+    x.drawImage(resizeForOcr(sourceCanvas, r.x, r.y, r.w, r.h, w, h), 0, 0);
     x.setTransform(1, 0, 0, 1, 0, 0);
     const info = suppressBarcode(c);
     return { canvas: c, bands: info.bands, rowMax: info.rowMax, colMax: info.colMax, colMaxX: info.colMaxX, scale, rot };
@@ -522,9 +558,16 @@
     els.result.value = out;
     els.result.classList.toggle('plain', m !== 'label');
     els.result.rows = m === 'label' ? 2 : 8;
-    els.count.textContent = out ? out.replace(/\s/g, '').length + '자' : '';
-    els.copy.disabled = !out;
-    els.share.disabled = !out;
+    updateResultActions();
+  }
+
+  function updateResultActions() {
+    const text = els.result.value;
+    const empty = !text.trim();
+    els.count.textContent = empty ? '' : text.replace(/\s/g, '').length + '자';
+    els.copy.disabled = empty;
+    els.share.disabled = empty;
+    els.save.disabled = empty;
   }
 
   // ---- 이미지 로드 (EXIF 회전 반영 + 축소) --------------------------------
@@ -536,16 +579,24 @@
       // 폴백: <img>로 읽는다. 최신 Safari/Chrome은 <img>도 EXIF 회전을 반영한다.
       bitmap = await new Promise((res, rej) => {
         const img = new Image();
-        img.onload = () => res(img); img.onerror = rej;
-        img.src = URL.createObjectURL(file);
+        const url = URL.createObjectURL(file);
+        img.onload = () => { URL.revokeObjectURL(url); res(img); };
+        img.onerror = (error) => { URL.revokeObjectURL(url); rej(error); };
+        img.src = url;
       });
     }
     const w = bitmap.width, h = bitmap.height;
     const scale = Math.min(1, MAX_SIDE / Math.max(w, h));
+    if (scale < 1) {
+      try { return resizeForOcr(bitmap, 0, 0, w, h, Math.round(w * scale), Math.round(h * scale), true); }
+      finally { if (bitmap.close) bitmap.close(); }
+    }
     const canvas = document.createElement('canvas');
     canvas.width = Math.round(w * scale); canvas.height = Math.round(h * scale);
     const cx = canvas.getContext('2d', { willReadFrequently: true });
     cx.imageSmoothingQuality = 'high';
+    cx.fillStyle = '#fff';
+    cx.fillRect(0, 0, canvas.width, canvas.height);
     cx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     if (bitmap.close) bitmap.close();
     return canvas;
@@ -554,20 +605,26 @@
   // ---- OCR ---------------------------------------------------------------
   async function getWorker() {
     if (worker) return worker;
-    setProgress('인식 엔진 준비 중', 0);
-    // 두 모델을 한꺼번에 받아 두고(다운로드 1회), 인식 때 언어를 바꿔가며 두 번 돌린다.
-    // 'kor+eng'로 한 번에 돌리면 "HP딘버일자"처럼 영문 뒤 한글을 영문 단어로 오인해 깨뜨린다.
-    worker = await Tesseract.createWorker(['kor', 'eng'], 1, {
-      workerPath: 'vendor/worker.min.js',
-      corePath: 'vendor/core',
-      langPath: 'vendor/lang',
-      logger: (m) => {
-        if (m.status === 'recognizing text') setProgress(passLabel || '글자 읽는 중', m.progress);
-        else if (/loading|initializing/.test(m.status)) setProgress('모델 불러오는 중', m.progress);
-      },
-    });
-    workerLang = 'kor+eng';
-    return worker;
+    if (workerPromise) return workerPromise;
+    workerPromise = (async () => {
+      await offlineReady;
+      setProgress('인식 엔진 준비 중', 0);
+      // 두 모델을 한꺼번에 받아 두고(다운로드 1회), 인식 때 언어를 바꿔가며 두 번 돌린다.
+      // 'kor+eng'로 한 번에 돌리면 "HP딘버일자"처럼 영문 뒤 한글을 영문 단어로 오인해 깨뜨린다.
+      worker = await Tesseract.createWorker(['kor', 'eng'], 1, {
+        workerPath: 'vendor/worker.min.js',
+        corePath: 'vendor/core',
+        langPath: 'vendor/lang',
+        logger: (m) => {
+          if (m.status === 'recognizing text') setProgress(passLabel || '글자 읽는 중', m.progress);
+          else if (/loading|initializing/.test(m.status)) setProgress('모델 불러오는 중', m.progress);
+        },
+      });
+      workerLang = 'kor+eng';
+      return worker;
+    })();
+    try { return await workerPromise; }
+    finally { workerPromise = null; }
   }
 
   async function recognizeWith(lang, canvas, label) {
@@ -581,9 +638,9 @@
   }
 
   async function recognize() {
-    if (busy || !sourceCanvas) return;
+    if (busy || loading || !sourceCanvas) return;
     busy = true;
-    els.rerun.disabled = true;
+    updateBusy();
     try {
       const t0 = performance.now();
       let built = buildOcrCanvas(1, 0);
@@ -630,26 +687,9 @@
         }
       }
 
-      // (2) 영문 패스는 제품명 앞머리(HP)를 되살리는 데만 쓴다. 화면을 '줄이는' 것은 되지만
-      //     '잘라내는' 것은 안 된다. 일부만 잘라 읽으면 Tesseract의 명암 기준이 달라져
-      //     앞머리 영문을 통째로 놓친다(실측 확인). 제품 코드는 큰 글자라 축소에는 견딘다.
-      // 축소 비율은 화면 폭이 아니라 '글자 크기'로 정한다. 폭만 보고 줄이면 라벨이 작게
-      // 찍힌 사진에서 앞머리 영문이 뭉개져 사라진다(HP가 H로 줄어듦, 실측 확인).
-      const th = textHeight(kor);
-      const shrink = th ? Math.min(1, Math.max(0.5, ENG_TEXT_H / th)) : 1;
-      let engCanvas = built.canvas;
-      if (shrink < 0.95) {
-        engCanvas = document.createElement('canvas');
-        engCanvas.width = Math.round(built.canvas.width * shrink);
-        engCanvas.height = Math.round(built.canvas.height * shrink);
-        const ex = engCanvas.getContext('2d');
-        ex.imageSmoothingQuality = 'high';
-        ex.drawImage(built.canvas, 0, 0, engCanvas.width, engCanvas.height);
-      }
-      const eng = await recognizeWith('eng', engCanvas, '영문 확인 중');
-      if (shrink < 0.95) {
-        for (const s of eng.symbols) { s.x0 /= shrink; s.x1 /= shrink; s.cy /= shrink; }
-      }
+      // 영문도 같은 크기로 읽는다. 재축소하면 기울어진 라벨의 HP가 Pm으로
+      // 바뀌는 회귀가 생겼다. 두 패스가 같은 좌표계라 글자 상자도 바로 비교할 수 있다.
+      const eng = await recognizeWith('eng', built.canvas, '영문 확인 중');
       lastData = { kor, eng };
       applyFilter();
       const sec = ((performance.now() - t0) / 1000).toFixed(1);
@@ -657,27 +697,34 @@
       else setStatus('글자를 찾지 못했습니다. 글자 부분만 끌어 선택한 뒤 다시 인식해 보세요.', 'err');
     } catch (e) {
       console.error(e);
-      setStatus('인식에 실패했습니다: ' + (e && e.message ? e.message : e), 'err');
+      if (worker) { await worker.terminate().catch(() => {}); worker = null; workerLang = ''; }
+      setStatus('인식하지 못했습니다. 처음 사용한다면 인터넷 연결을 확인한 뒤 다시 인식해 주세요.', 'err');
     } finally {
       hideProgress();
       busy = false;
-      els.rerun.disabled = !sourceCanvas;
+      updateBusy();
     }
   }
 
   async function handleFile(file) {
-    if (!file) return;
-    lastData = null; cropRect = null; updateSelBox();
-    applyFilter();
+    if (!file || busy || loading) return;
+    loading = true;
+    updateBusy();
     setStatus('사진 불러오는 중…');
     try {
-      sourceCanvas = await loadToCanvas(file);
+      const nextCanvas = await loadToCanvas(file);
+      sourceCanvas = nextCanvas;
+      lastData = null; cropRect = null; drag = null; updateSelBox();
+      applyFilter();
+      els.previewImg.src = sourceCanvas.toDataURL('image/jpeg', 0.85);
+      els.preview.style.display = 'block';
     } catch (e) {
-      setStatus('사진을 열 수 없습니다.', 'err');
+      setStatus('사진을 열 수 없습니다. JPG·PNG 사진을 선택하거나 카메라로 다시 촬영해 주세요.', 'err');
       return;
+    } finally {
+      loading = false;
+      updateBusy();
     }
-    els.previewImg.src = sourceCanvas.toDataURL('image/jpeg', 0.85);
-    els.preview.style.display = 'block';
     await recognize();
   }
 
@@ -724,10 +771,10 @@
   }
 
   els.stage.addEventListener('pointerdown', (e) => {
-    if (!sourceCanvas) return;
+    if (!sourceCanvas || busy || loading || !e.isPrimary) return;
     const p = toSource(e.clientX, e.clientY);
     if (!p) return;
-    drag = { sx: p.x, sy: p.y };
+    drag = { sx: p.x, sy: p.y, previous: cropRect };
     els.stage.setPointerCapture(e.pointerId);
     e.preventDefault();
   });
@@ -754,13 +801,21 @@
     if (cropRect) recognize();
   });
 
+  els.stage.addEventListener('pointercancel', () => {
+    if (drag) cropRect = drag.previous;
+    drag = null;
+    updateSelBox();
+  });
+
   els.cropClear.addEventListener('click', () => { cropRect = null; updateSelBox(); recognize(); });
   window.addEventListener('resize', updateSelBox);
 
   // ---- 복사 / 공유 --------------------------------------------------------
   // http(비보안 컨텍스트)에서는 navigator.clipboard가 없으므로 선택+execCommand로 폴백한다.
   async function copyText(text) {
-    if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return; }
+    if (navigator.clipboard && window.isSecureContext) {
+      try { await navigator.clipboard.writeText(text); return; } catch { /* 선택 복사로 재시도 */ }
+    }
     const ta = els.result;
     ta.focus();
     ta.setSelectionRange(0, ta.value.length);   // iOS Safari는 select()만으로는 선택이 안 된다
@@ -771,6 +826,23 @@
   }
 
   // ---- 이벤트 --------------------------------------------------------------
+  els.cameraButton.addEventListener('click', () => els.camera.click());
+  els.galleryButton.addEventListener('click', () => els.gallery.click());
+  els.result.addEventListener('input', updateResultActions);
+  els.save.addEventListener('click', () => {
+    if (!els.result.value.trim()) return;
+    const blob = new Blob(['\uFEFF', els.result.value], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const now = new Date();
+    const stamp = [now.getFullYear(), now.getMonth() + 1, now.getDate(), now.getHours(), now.getMinutes(), now.getSeconds()]
+      .map(n => String(n).padStart(2, '0')).join('-');
+    link.download = `label-ocr-${stamp}.txt`;
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    setStatus('텍스트 파일 저장을 요청했습니다. 다운로드 목록을 확인해 주세요.', 'ok');
+  });
   for (const input of [els.camera, els.gallery]) {
     input.addEventListener('change', () => { handleFile(input.files[0]); input.value = ''; });
   }
@@ -788,7 +860,9 @@
   if (navigator.share) {   // Web Share는 https에서만 제공된다. 있으면 버튼을 켠다.
     els.share.hidden = false;
     els.share.addEventListener('click', () => {
-      if (els.result.value) navigator.share({ text: els.result.value }).catch(() => {});
+      if (els.result.value) navigator.share({ text: els.result.value }).catch((e) => {
+        if (e.name !== 'AbortError') setStatus('공유하지 못했습니다. 복사 또는 파일 저장을 이용해 주세요.', 'err');
+      });
     });
   }
 
@@ -801,9 +875,19 @@
   applyFilter();
 
   // 오프라인 캐시 등록. https(또는 localhost)에서만 동작하고, http LAN 접속에서는 조용히 건너뛴다.
-  if ('serviceWorker' in navigator && window.isSecureContext) {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
-  }
+  const offlineReady = (async () => {
+    if (!('serviceWorker' in navigator) || !window.isSecureContext) return;
+    try {
+      await navigator.serviceWorker.register('sw.js');
+      if (navigator.serviceWorker.controller) return;
+      await new Promise((resolve) => {
+        const done = () => { clearTimeout(timer); navigator.serviceWorker.removeEventListener('controllerchange', done); resolve(); };
+        const timer = setTimeout(done, 8000);
+        navigator.serviceWorker.addEventListener('controllerchange', done);
+        if (navigator.serviceWorker.controller) done();
+      });
+    } catch { /* 저장소 사용이 제한돼도 온라인 OCR은 계속 사용할 수 있다. */ }
+  })();
 
   // 앱을 열자마자 엔진과 모델을 미리 올려 둔다. 이 준비에만 5~6초가 걸려서, 미리 하지 않으면
   // 첫 사진의 인식 시간에 그대로 얹힌다(실측 확인). 사진을 고르는 동안 끝나 있게 한다.
@@ -811,11 +895,15 @@
     setStatus('인식 엔진 준비 중…');
     try {
       await getWorker();
-      hideProgress();
-      if (!lastData) setStatus('준비됐습니다. 사진을 찍거나 선택하세요.', 'ok');
+      if (!busy && !loading) {
+        hideProgress();
+        if (!lastData) setStatus('준비됐습니다. 사진을 찍거나 선택하세요.', 'ok');
+      }
     } catch {
-      hideProgress();
-      setStatus('사진을 찍거나 선택하면 자동으로 읽습니다.');
+      if (!busy && !loading) {
+        hideProgress();
+        setStatus('인식 엔진을 준비하지 못했습니다. 인터넷 연결 후 사진을 선택해 주세요.', 'err');
+      }
     }
   })();
 

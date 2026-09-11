@@ -1,46 +1,61 @@
-// 오프라인 캐시. https(또는 localhost)에서만 동작한다.
-// - 화면(index.html 등)은 네트워크 우선: 고친 내용이 바로 반영되게.
-// - 엔진·모델(vendor/)은 캐시 우선: 한 번 받으면 다시 안 받고, 인터넷 없이도 동작.
-const CACHE = 'label-ocr-v9';
-const PRECACHE = ['./', './index.html', './manifest.json', './icon.png'];
+// GitHub Pages 프로젝트는 같은 origin을 공유한다. 이 앱의 캐시만 관리한다.
+const PREFIX = `label-ocr:${self.registration.scope}:`;
+const CACHE = PREFIX + 'shell-v10';
+const ASSETS = PREFIX + 'vendor-v1'; // 화면 업데이트 뒤에도 OCR 모델을 유지한다.
+const PRECACHE = ['./', './index.html', './shortcut.html', './ocr-image.js', './manifest.json', './icon.png'];
+const SCRIPTS = ['./vendor/tesseract.min.js', './vendor/worker.min.js'];
 
-self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(PRECACHE)).then(() => self.skipWaiting()));
+self.addEventListener('install', (event) => {
+  event.waitUntil((async () => {
+    await (await caches.open(CACHE)).addAll(PRECACHE);
+    await (await caches.open(ASSETS)).addAll(SCRIPTS);
+    await self.skipWaiting();
+  })());
 });
 
-self.addEventListener('activate', (e) => {
-  e.waitUntil(
-    caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
-      .then(() => self.clients.claim())
-  );
+self.addEventListener('activate', (event) => {
+  event.waitUntil((async () => {
+    const names = await caches.keys();
+    await Promise.all(names.filter(name => name.startsWith(PREFIX) && name !== CACHE && name !== ASSETS)
+      .map(name => caches.delete(name)));
+    await self.clients.claim();
+  })());
 });
 
-// 응답을 캐시에 넣는다. waitUntil로 잡아 두어 워커가 먼저 종료되지 않게 한다.
-function store(e, res) {
-  if (!res || !res.ok) return res;
-  const copy = res.clone();
-  e.waitUntil(caches.open(CACHE).then((c) => c.put(e.request, copy)));
-  return res;
+async function save(cache, request, response) {
+  if (response.ok) {
+    // 저장 공간이 부족해도 성공한 온라인 요청은 그대로 사용한다.
+    try { await cache.put(request, response.clone()); } catch {}
+  }
+  return response;
 }
 
-self.addEventListener('fetch', (e) => {
-  const url = new URL(e.request.url);
-  if (url.origin !== self.location.origin || e.request.method !== 'GET') return;
-
-  if (url.pathname.includes('/vendor/')) {
-    // 캐시 우선
-    e.respondWith(
-      caches.match(e.request).then((hit) => hit || fetch(e.request).then((res) => store(e, res)))
-    );
-    return;
-  }
-
-  // 네트워크 우선, 실패하면 캐시
-  e.respondWith(
-    fetch(e.request)
-      .then((res) => store(e, res))
-      .catch(() => caches.match(e.request, { ignoreSearch: true })
-        .then((hit) => hit || caches.match('./index.html')))
-  );
+self.addEventListener('fetch', (event) => {
+  const url = new URL(event.request.url);
+  const scope = new URL(self.registration.scope);
+  if (url.origin !== scope.origin || !url.pathname.startsWith(scope.pathname) || event.request.method !== 'GET') return;
+  const vendor = new URL('vendor/', scope).pathname;
+  event.respondWith((async () => {
+    const cache = await caches.open(url.pathname.startsWith(vendor) ? ASSETS : CACHE);
+    if (url.pathname.startsWith(vendor)) {
+      return await cache.match(event.request) || await save(cache, event.request, await fetch(event.request));
+    }
+    try {
+      const response = await fetch(event.request);
+      if (response.status >= 500) {
+        const cached = await cache.match(event.request, { ignoreSearch: true });
+        if (cached) return cached;
+      }
+      return await save(cache, event.request, response);
+    } catch {
+      const cached = await cache.match(event.request, { ignoreSearch: true });
+      if (cached) return cached;
+      // 없는 스크립트·이미지 요청에 HTML을 돌려주지 않는다.
+      if (event.request.mode === 'navigate') {
+        const shell = await cache.match(new URL('index.html', scope).href);
+        if (shell) return shell;
+      }
+      return Response.error();
+    }
+  })());
 });

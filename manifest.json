@@ -1,6 +1,9 @@
 {
   "name": "라벨 OCR",
   "short_name": "라벨 OCR",
+  "id": "./",
+  "lang": "ko",
+  "description": "사진에서 제품명·색상과 텍스트를 추출하고 복사·저장하는 앱",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
